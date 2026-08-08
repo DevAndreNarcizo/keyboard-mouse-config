@@ -1,0 +1,14 @@
+# Acesso hidraw sem root aos periféricos novos (2026-08-07).
+# As regras do hardware antigo (99-freewolf-f75.rules, 99-battlog-mouse.rules)
+# continuam instaladas e inofensivas — se o F75 ou o AJ139 voltarem à mesa,
+# funcionam de novo sem mexer em nada.
+
+# Teclado Attack Shark K86 — dongle 2.4G (ROYUAN 3151:4011)
+KERNEL=="hidraw*", ATTRS{idVendor}=="3151", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+# Modo cabo do K86 e demais placas ROYUAN/Attack Shark (mesma lista do sharkfin)
+KERNEL=="hidraw*", ATTRS{idVendor}=="379a", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+KERNEL=="hidraw*", ATTRS{idVendor}=="374a", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+KERNEL=="hidraw*", ATTRS{idVendor}=="38a9", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+
+# Receptor 8K do mouse (LXDDZ/Xenta 1d57:fa65)
+KERNEL=="hidraw*", ATTRS{idVendor}=="1d57", ATTRS{idProduct}=="fa65", MODE="0660", GROUP="plugdev", TAG+="uaccess"

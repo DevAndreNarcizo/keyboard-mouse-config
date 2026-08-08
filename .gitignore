@@ -1,0 +1,5 @@
+# dados locais da máquina, não configuração
+battlog/battlog.db
+battlog/last-run.log
+__pycache__/
+*.pyc

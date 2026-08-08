@@ -1,0 +1,8 @@
+# FreeWolf F75 (Semico 1a2c) - acesso hidraw sem root
+# Fonte dos IDs: config.xml do software oficial (mode 0=USB, mode 2=2.4G)
+# Receptor 2.4G
+KERNEL=="hidraw*", ATTRS{idVendor}=="1a2c", ATTRS{idProduct}=="8fff", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+# Modo cabo
+KERNEL=="hidraw*", ATTRS{idVendor}=="1a2c", ATTRS{idProduct}=="a073", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+# Modo cabo (PID antigo, comentado no config.xml do fabricante)
+KERNEL=="hidraw*", ATTRS{idVendor}=="1a2c", ATTRS{idProduct}=="afff", MODE="0660", GROUP="plugdev", TAG+="uaccess"

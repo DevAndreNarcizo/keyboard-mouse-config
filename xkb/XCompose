@@ -1,0 +1,6 @@
+include "%L"
+
+<dead_acute> <c> : "ç" ccedilla
+<dead_acute> <C> : "Ç" Ccedilla
+
+<dead_circumflex> <space> : "\"" quotedbl

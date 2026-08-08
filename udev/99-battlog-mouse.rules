@@ -1,0 +1,3 @@
+# Mouse AJAZZ/Smailwolf (chip YJX a8a5:2255) - leitura do canal vendor sem root.
+# O teclado F75 (1a2c) ja e liberado por f75ctl/99-freewolf-f75.rules.
+KERNEL=="hidraw*", ATTRS{idVendor}=="a8a5", ATTRS{idProduct}=="2255", MODE="0660", GROUP="plugdev", TAG+="uaccess"
