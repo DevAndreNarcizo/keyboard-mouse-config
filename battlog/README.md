@@ -9,6 +9,7 @@ Hardware atual (2026-08-07): teclado **Attack Shark K86** (dongle ROYUAN
 ./battlog.py probe        # grava uma rodada de bytes crus (é o que o cron roda)
 ./battlog.py raw          # quais bytes variaram e como
 ./battlog.py show         # timeline de bateria (só depois de haver parser)
+./battlog.py status       # último valor de cada um, e atualiza o cache do painel
 ./battlog.py selftest     # checa análise, poda e sparkline
 ```
 
@@ -24,6 +25,31 @@ Cron (a cada 10 min, em `crontab -l`):
 ```
 */10 * * * * .../battlog.py probe --wait 90 >.../last-run.log 2>&1
 ```
+
+## Widget no painel do GNOME
+
+`../gnome/battlog@victor/` — extensão de dois arquivos que mostra os dois
+percentuais na barra de cima, ao lado do Astra Monitor.
+
+Ela **não fala com hardware**: o `probe` reescreve `~/.cache/battlog-status`
+(`ts`, `teclado`, `mouse`, um por linha, troca atômica) no fim de cada rodada, e
+a extensão relê esse arquivo a cada 2 min. Toda a parte difícil — hidraw,
+parser, histórico — continua no `battlog.py`, e o painel é só um `St.Label`.
+
+Três decisões que valem o comentário:
+
+- **O valor vem da última linha do banco, não da rodada atual.** O receptor do
+  mouse só fala com o mouse em uso, então metade das rodadas não tem mouse — e
+  mouse parado não gastou bateria. Repetir o último número é mais verdadeiro que
+  apagá-lo.
+- **`ts` mais velho que 30 min vira `—`.** É o cron que morreu, e um número
+  velho no painel engana justamente por parecer atual.
+- **Sem flag de carregando.** A do teclado (byte 3) pisca 0/1 sem cabo nenhum;
+  no painel ela mentiria a cada duas leituras.
+
+O Astra Monitor não serve de casa pra isso: a versão 42 não tem sensor por
+comando (o `sensors-source` dele só lê `hwmon`), então seria preciso um driver
+de kernel falso só para expor dois inteiros.
 
 ## Bateria do teclado: resolvida (2026-08-08)
 
@@ -41,15 +67,57 @@ software do fabricante usa pra ler bateria** (o frame é do dongle, não do
 teclado). Não adianta patchar o sharkfin: o código dele manda os bytes certos, o
 firmware do dongle é que não repassa.
 
-Plugar o cabo resolveu o resto do frame de uma vez: o byte 1 vinha caindo
-`34 33 33 32 32` e **pulou pra 42** no instante em que o USB entrou, enquanto o
-byte 3 virava `0 → 1` e o byte 5 fazia o inverso. Então `[1]` = percentual,
-**`[3]` = flag de carregando** (o `[5]` é redundante), `[7]` = checksum.
+O que sustenta o byte 1 é a **descarga**: ele cai devagar e de forma monótona por
+dias (88 → 30 numa semana) e, quando o cabo sai depois de uma carga, ele pula para
+o valor que a tela do próprio teclado mostra (medido em 23/08: 30 → 100 em menos de
+2 min). Só o resto do frame:
 
-**O dongle continua reportando com o teclado no cabo.** (Eu tinha previsto o
-contrário — que o log ficaria com buracos durante sessões de cabo. Errado: os
-dois canais ficam vivos ao mesmo tempo, e é justamente assim que dá pra ver a
-carga subindo.)
+| byte | o que é |
+|---|---|
+| `[1]` | percentual — **com a ressalva de carga, abaixo** |
+| `[3]` | flutua 0/1 sem cabo nenhum. **Não é flag de carregando**, não usar |
+| `[5]` | constante `1` nos frames modernos. Bate com o inverso de `[3]` em só 464 de 1389 amostras — coincidência, não relação |
+| `[7]` | `0` nos frames modernos. **Não é checksum** (a regra `0xFF - soma` vale para o que se *manda*, não para o que volta) |
+
+Nos três primeiros dias do log (08–10/08) aparece um segundo formato, com `[7] =
+0x7a` e às vezes `[0] = 1`. São 112 frames, todos daquela época, e nada depois de
+10/08. Não foi investigado.
+
+## O ponto cego: teclado no carregador
+
+**Enquanto o teclado está no cabo, o percentual do dongle não vale nada.** Medido
+na noite de 22→23/08, com o cabo num carregador de tomada (o PC nunca viu o
+`3151:4015`, então o teclado ficou no 2.4G a noite inteira):
+
+```
+04:00  30%          antes do cabo
+04:10  78%          cabo entrou
+04:20  81%  chg=1
+  ...  81% cravado, 33 leituras idênticas em 5h30
+10:00  30%  chg=0   ainda no carregador, carga já completa
+10:29  100%         2 min depois de tirar o cabo
+```
+
+Carga real não fica parada em 81 por 5h30 nem volta ao valor exato de antes. O que
+explica isso está no protocolo do sharkfin: **"an unsupported command returns the
+previous reply, not an error"** — o `0xF7` que o `probe` manda não é opcode válido,
+então o que se lê é o *buffer de resposta* do dongle, não uma medição. Enquanto o
+teclado está na tomada ele para de alimentar esse buffer, e o dongle republica o
+que tinha. Sai o cabo, o teclado volta a reportar, o número se corrige sozinho.
+
+**Não dá para detectar esse estado pelo frame.** O `[3]` é ruído; e um tombo grande
+para baixo é ambíguo — pode ser o buffer voltando ao valor velho (22/08, 81 → 30
+mentindo) ou o teclado acordando e reportando a verdade depois de uma noite dormindo
+(18/08, 60 → 46, legítimo). A série sozinha não separa os dois casos, então o painel
+**não** tenta adivinhar: mostra o que o dongle diz.
+
+Na prática: **carregando, olhe a tela do teclado** — ela é medição do firmware dele.
+O painel volta a valer sozinho poucos minutos depois de o cabo sair.
+
+Histórico de todos os saltos para cima em 90 dias: `09/08 42→100`, `13/08 20→83` e
+`14/08 71→100` grudaram (cargas reais); `14/08 71→99` e `23/08 30→81` voltaram
+(sessões de carga em andamento). O canal funciona — ele só não é confiável *durante*
+a carga.
 
 ## Bateria do mouse: byte 4, provisório
 
@@ -106,7 +174,10 @@ suspeito é este cron** — tirar e voltar a escutar passivo.
 ## Dados
 
 `battlog.db`: `raw(ts, device, hex)` com os bytes crus e `battery(ts, device,
-pct, charging)` para quando houver parser. Poda de **90 dias** roda dentro do
+pct, charging)` para quando houver parser. Frames com percentual **0** não entram
+no `battery`: é o frame desalinhado que sai logo depois de o dongle enumerar, e
+virava um 0% falso no gráfico (6 linhas assim foram apagadas em 23/08; o `raw`
+guarda todas, dá pra rederivar). Poda de **90 dias** roda dentro do
 próprio `probe` (`--keep` muda o prazo); não há segunda rotina para agendar.
 
 `battlog-f75.py` é a versão anterior, do FreeWolf F75 + AJAZZ AJ139, com os

@@ -1,0 +1,7 @@
+{
+  "uuid": "battlog@victor",
+  "name": "battlog",
+  "description": "Bateria do teclado (Attack Shark K86) e do mouse (Delux M900Pro) no painel. Lê o cache que o cron do battlog escreve; não fala com o hardware.",
+  "shell-version": ["46"],
+  "version": 1
+}

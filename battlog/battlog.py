@@ -16,6 +16,7 @@ a funcionar como no F75.
     battlog.py probe        # grava uma rodada de bytes crus (é o que o cron roda)
     battlog.py raw          # quais bytes variaram e como
     battlog.py show         # timeline de bateria (só depois de haver parser)
+    battlog.py status       # último valor de cada um, e atualiza o cache do painel
     battlog.py selftest     # checa análise, poda e sparkline
 """
 import argparse
@@ -28,6 +29,8 @@ import sys
 import time
 
 DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "battlog.db")
+STATUS = os.path.join(os.environ.get("XDG_CACHE_HOME") or
+                      os.path.expanduser("~/.cache"), "battlog-status")
 KEEP_DAYS = 90
 
 # ioctls do hidraw (linux/hidraw.h): _IOC(READ|WRITE, 'H', nr, tamanho)
@@ -149,6 +152,11 @@ def battery_rows(rows):
             continue
         pct_off, chg_off = PARSERS[name]
         raw = bytes.fromhex(h)
+        if raw[pct_off] == 0:
+            # Frame desalinhado (um byte a menos), que sai logo depois de o dongle
+            # enumerar. Vira um 0% falso no log e um susto no painel. Bateria 0 de
+            # verdade não chega aqui: teclado sem carga não reporta nada.
+            continue
         chg = None if chg_off is None else int(bool(raw[chg_off]))
         out.append((ts, name, raw[pct_off], chg))
     return out
@@ -162,6 +170,41 @@ def db_open(path):
     con.execute("CREATE TABLE IF NOT EXISTS raw(ts INTEGER, device TEXT, hex TEXT)")
     con.execute("CREATE INDEX IF NOT EXISTS raw_ts ON raw(ts, device)")
     return con
+
+
+def status_text(con):
+    """Última leitura de cada device, em linhas `chave valor` — o que o painel lê.
+
+    Lê a última linha do banco, não a rodada atual, de propósito: o mouse só
+    fala com o mouse em uso, e mouse parado não gastou bateria, então repetir o
+    último número é mais verdadeiro do que apagá-lo. Quem morre de verdade é o
+    cron, e isso aparece no `ts`: a extensão compara com o relógio e mostra "—"
+    em vez de um número velho.
+
+    Sem flag de carga: a do teclado (byte 3) pisca 0/1 sem cabo nenhum, então
+    ela mentiria no painel. Ver README.
+    """
+    linhas = [f"ts {int(time.time())}"]
+    for name, in con.execute("SELECT DISTINCT device FROM battery ORDER BY device"):
+        pct, = con.execute("SELECT pct FROM battery WHERE device = ? "
+                           "ORDER BY ts DESC LIMIT 1", (name,)).fetchone()
+        linhas.append(f"{name} {pct}")
+    return "\n".join(linhas) + "\n"
+
+
+def write_status(con, path=STATUS):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"  # troca atômica: o painel relê a qualquer momento
+    with open(tmp, "w") as f:
+        f.write(status_text(con))
+    os.replace(tmp, path)
+
+
+def cmd_status(args):
+    con = db_open(args.db)
+    write_status(con)
+    print(status_text(con), end="")
+    return 0
 
 
 def cmd_probe(args):
@@ -201,6 +244,7 @@ def cmd_probe(args):
     dropped = sum(con.execute(f"DELETE FROM {t} WHERE ts < ?", (cut,)).rowcount
                   for t in ("battery", "raw"))
     con.commit()
+    write_status(con)
     if dropped:
         print(f"({dropped} amostras com mais de {args.keep} dias apagadas)")
     return 0 if rows else 1
@@ -308,6 +352,8 @@ def selftest():
         == [(9, "teclado", 42, 1)]
     assert battery_rows([(9, "mouse", "03 50 41 01 54")]) == [(9, "mouse", 84, None)]
     assert battery_rows([(9, "desconhecido", "00 01")]) == []
+    # frame desalinhado -> 0%: descartado, não vira ponto no gráfico
+    assert battery_rows([(9, "teclado", "00 00 00 01 01 01 01 00")]) == []
 
     con = db_open(":memory:")
     now = int(time.time())
@@ -316,6 +362,12 @@ def selftest():
     con.execute("DELETE FROM raw WHERE ts < ?", (now - 90 * 86400,))
     assert con.execute("SELECT count(*) FROM raw").fetchone()[0] == 1
     assert spark([None, 0, 50, 100]) == " ▁▄█"
+
+    con.executemany("INSERT INTO battery VALUES (?,?,?,?)",
+                    [(1, "teclado", 50, 0), (2, "teclado", 49, 0), (1, "mouse", 70, None)])
+    linhas = status_text(con).splitlines()
+    assert linhas[0].startswith("ts ") and int(linhas[0][3:]) > 1_700_000_000, linhas
+    assert linhas[1:] == ["mouse 70", "teclado 49"], linhas  # o mais recente de cada
     print("selftest ok")
 
 
@@ -333,11 +385,13 @@ def main():
     sh = sub.add_parser("show", help="timeline de bateria")
     sh.add_argument("--days", type=float, default=7)
     sh.add_argument("--width", type=int, default=60)
+    sub.add_parser("status", help="última leitura de cada device (e atualiza o cache do painel)")
     sub.add_parser("selftest", help="checa análise, poda e sparkline")
     args = ap.parse_args()
     if args.cmd == "selftest":
         return selftest()
-    return {"probe": cmd_probe, "raw": cmd_raw, "show": cmd_show}[args.cmd](args)
+    return {"probe": cmd_probe, "raw": cmd_raw, "show": cmd_show,
+            "status": cmd_status}[args.cmd](args)
 
 
 if __name__ == "__main__":

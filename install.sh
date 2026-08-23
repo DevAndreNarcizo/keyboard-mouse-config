@@ -67,6 +67,24 @@ if command -v gsettings >/dev/null && [ -n "${XDG_CURRENT_DESKTOP:-}" ]; then
   gsettings set org.gnome.desktop.input-sources sources \
     "[('xkb','victor+quotefix'),('xkb','br')]"
   echo "    victor(quotefix) em primeiro = é o layout padrão, sem Super+Space"
+
+  echo "==> extensão do painel (bateria do teclado/mouse)"
+  EXT="$HOME/.local/share/gnome-shell/extensions/battlog@victor"
+  mkdir -p "$(dirname "$EXT")"
+  ln -sfnT "$PWD/gnome/battlog@victor" "$EXT"
+  # `gnome-extensions enable` recusa uuid que o shell ainda não varreu (é o caso
+  # numa instalação nova), então mexe direto no gsettings — mesma chave.
+  python3 - <<'EXTPY'
+import ast, subprocess
+g = ["gsettings", "get", "org.gnome.shell", "enabled-extensions"]
+lst = ast.literal_eval(subprocess.check_output(g, text=True).strip().removeprefix("@as "))
+if "battlog@victor" in lst:
+    print("    já habilitada")
+else:
+    lst.append("battlog@victor")
+    subprocess.run(g[:1] + ["set"] + g[2:] + [str(lst)], check=True)
+    print("    habilitada (aparece depois que o shell reiniciar)")
+EXTPY
 else
   echo "==> GNOME não detectado, pulando gsettings"
 fi
@@ -87,4 +105,7 @@ Se esta máquina tem o teclado/mouse e você quer o log de bateria, adicione ao
 `crontab -e` (ajuste o caminho):
 
   */10 * * * * /caminho/para/keyboard-config/battlog/battlog.py probe --wait 90 >/tmp/battlog.log 2>&1
+
+É esse cron que alimenta a extensão do painel: ele reescreve ~/.cache/battlog-status
+a cada rodada. Sem cron, o painel mostra "—" (de propósito: número velho enganaria).
 EOF

@@ -73,13 +73,32 @@ só reescreveria o sharkfin para funcionar em menos casos.
 */10 * * * * /var/www/victor/keyboards/keyboard-config/battlog/battlog.py probe --wait 90
 ```
 
-**Os dois resolvidos em 2026-08-08.** Teclado: byte 1 do frame de status do dongle, com flag
-de carregando no byte 3. Mouse: byte 4 do report `0x03` (provisório — menos evidência). O
-`show` desenha os dois. Detalhes e o que já foi eliminado por teste em `battlog/README.md`.
+**Os dois resolvidos em 2026-08-08.** Teclado: byte 1 do frame de status do dongle. Mouse:
+byte 4 do report `0x03` (provisório — menos evidência). O `show` desenha os dois. Detalhes e
+o que já foi eliminado por teste em `battlog/README.md`.
+
+**Ponto cego (medido em 2026-08-23): com o teclado no carregador, o percentual do dongle não
+vale.** O `0xF7` que o `probe` manda não é opcode válido, e o protocolo devolve *a resposta
+anterior* — enquanto o teclado está na tomada ele para de alimentar esse buffer e o dongle
+republica o valor de antes da carga. Ficou 5h30 cravado em 81% e depois voltou a marcar os
+30% de antes de dormir, com a bateria cheia. Tirado o cabo, corrigiu para 100% em 2 min.
+Carregando, a fonte certa é **a tela do teclado**. A flag do byte 3 **não** é "carregando" —
+ela oscila 0/1 sem cabo nenhum.
 
 No modo cabo o teclado enumera como `3151:4015` e aí sim responde ao protocolo (o `identify`
 devolve board id `1168`); pelo dongle `3151:4011` nunca responde. Os dois canais convivem — com
 o cabo plugado o dongle continua reportando bateria, então o log não fica com buracos.
+
+## 7. Widget de bateria no painel (2026-08-23)
+
+`gnome/battlog@victor/`, symlinkada pelo `install.sh` para
+`~/.local/share/gnome-shell/extensions/`. Mostra `⌨ 30%  🖱 68%` na barra de cima.
+
+Lê `~/.cache/battlog-status`, escrito pelo `probe` do cron — a extensão não toca em
+hidraw nem em sqlite. Sem cron rodando (ou `ts` com mais de 30 min) ela mostra `—` em
+vez de um número velho. Detalhes em `battlog/README.md`.
+
+Aparece só depois de reiniciar o shell (X11: Alt+F2, `r`).
 
 ## Não ativo
 
