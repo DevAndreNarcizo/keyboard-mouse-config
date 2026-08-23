@@ -111,7 +111,7 @@ Levantamento sistemático comparando `br` (ABNT2) com `us(intl)` + patches, tecl
 à tabela completa no topo deste documento. Único gap real encontrado (fora o `⅜`, irrelevante): `º`/`ª`
 não existiam em nenhuma tecla do `us(intl)` puro.
 
-**O F75 não tem AltGr físico.** O XML do layout oficial (`f75ctl/reference/layouts/kb-k600t.xml`)
+**O F75 não tem AltGr físico.** O XML do layout oficial (`layouts/kb-k600t.xml` do app do fabricante, fora do repo)
 mostra que a posição onde ficaria o Alt direito manda o código `Fn` (proprietário do firmware, nunca
 chega ao Linux como modificador). Não existe tecla física sobrando pra virar AltGr sem sacrificar algo
 já em uso (Ctrl esquerdo, Enter, `\`) ou inexistente nesta placa (Menu, Win direito).

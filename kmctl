@@ -1,0 +1,190 @@
+#!/usr/bin/env python3
+"""kmctl — bateria e controle dos periféricos, um comando só.
+
+Ele não sabe nada de modelo nenhum: pergunta ao `devices/` quem está plugado e
+oferece o que cada modelo declarar em CAPS. Um modelo novo aparece aqui sozinho
+no instante em que o diretório dele existe.
+
+    kmctl devices                  quem é suportado, quem está plugado
+    kmctl battery                  percentual agora (leitura ao vivo)
+    kmctl probe                    grava uma rodada no histórico (é o do cron)
+    kmctl show                     timeline
+    kmctl raw                      quais bytes variaram (achar bateria nova)
+    kmctl status                   o cache que o painel lê
+    kmctl light --mode 7           iluminação (se o modelo fizer)
+    kmctl rgb 00ff80 [--only esc]  cor arbitrária
+    kmctl off                      apaga as teclas
+    kmctl key z printscreen        remap
+    kmctl sleep never              tempo até dormir
+    kmctl modes                    modos de luz do modelo
+    kmctl selftest                 checa o repo inteiro (não precisa hardware)
+"""
+import argparse
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import battery  # noqa: E402
+import devices  # noqa: E402
+
+
+def escolher(args, kind="keyboard"):
+    """(módulo, path) do modelo a operar. Erra com mensagem útil."""
+    if args.device:
+        for mod in devices.modules():
+            if mod.ID == args.device:
+                return mod, mod.find()
+        sys.exit(f"modelo desconhecido: {args.device!r} — veja `kmctl devices`")
+    mod, path, _ = devices.pick(kind)
+    if mod is None:
+        sys.exit(f"nenhum {kind} plugado. Use --device <id> para operar em "
+                 "modo --dry-run mesmo sem o hardware.")
+    return mod, path
+
+
+def operar(args, cap, **kw):
+    """Despacha uma operação de controle, respeitando CAPS e WONT."""
+    mod, path = escolher(args)
+    if cap not in mod.CAPS:
+        motivo = getattr(mod, "WONT", {}).get(cap)
+        if motivo:
+            sys.exit(f"{mod.NAME} não faz `{cap}`: {motivo}")
+        sys.exit(f"{mod.NAME} não faz `{cap}` (CAPS: {', '.join(mod.CAPS)})")
+    if path is None and not args.dry_run:
+        sys.exit(f"{mod.NAME} não está plugado")
+    try:
+        msg, log = getattr(mod, cap)(path, dry=args.dry_run, **kw)
+    except ValueError as e:
+        sys.exit(str(e))
+    if args.dry_run or args.verbose:
+        print("\n".join(log))
+    print(("[dry-run] " if args.dry_run else "") + msg)
+    return 0
+
+
+def cmd_devices(args):
+    recs = battery.recency(battery.db_open())
+    plugados = {m.ID for m, _ in devices.present()}
+    print(f"{'id':18} {'modelo':20} {'tipo':9} {'estado':12} caps")
+    for mod in devices.modules():
+        estado = "plugado" if mod.ID in plugados else "-"
+        caps = ", ".join(mod.CAPS)
+        print(f"{mod.ID:18} {mod.NAME:20} {mod.KIND:9} {estado:12} {caps}")
+    print()
+    for kind in devices.KINDS:
+        mod, _, motivo = devices.pick(kind, recency=recs)
+        quem = mod.ID if mod else "—"
+        print(f"painel usa como {kind:9}: {quem:18} ({motivo})")
+    return 0
+
+
+def cmd_battery(args):
+    for kind in devices.KINDS:
+        mod, path, _ = devices.pick(kind)
+        if mod is None:
+            print(f"{kind:9} —  (nenhum plugado)")
+            continue
+        r = mod.battery(path, args.wait)
+        if r is None:
+            print(f"{kind:9} —  ({mod.NAME} não respondeu em {args.wait:.0f}s)")
+            continue
+        carga = " carregando" if r.charging else ""
+        print(f"{kind:9} {r.pct}%{carga}  ({mod.NAME})")
+    return 0
+
+
+def cmd_modes(args):
+    mod, _ = escolher(args)
+    modos = getattr(mod, "MODES", None)
+    if not modos:
+        sys.exit(f"{mod.NAME} não declara modos de iluminação")
+    for n, nome in sorted(modos.items()):
+        print(f"  {n:2}  {nome}")
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0],
+        formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
+    ap.add_argument("--device", help="opera num modelo específico (id do devices/)")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="monta os pacotes e mostra, sem abrir o dispositivo")
+    ap.add_argument("-v", "--verbose", action="store_true", help="mostra os pacotes")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("devices", help="modelos suportados e quem está plugado")
+    ba = sub.add_parser("battery", help="percentual agora (leitura ao vivo)")
+    ba.add_argument("--wait", type=float, default=5,
+                    help="segundos esperando o mouse se anunciar (default: 5)")
+    pr = sub.add_parser("probe", help="grava uma rodada no histórico (cron)")
+    pr.add_argument("--wait", type=float, default=60)
+    pr.add_argument("--keep", type=int, default=battery.KEEP_DAYS,
+                    help=f"dias de histórico (default: {battery.KEEP_DAYS})")
+    rw = sub.add_parser("raw", help="quais bytes variaram e como")
+    rw.add_argument("--days", type=float, default=7)
+    sh = sub.add_parser("show", help="timeline de bateria")
+    sh.add_argument("--days", type=float, default=7)
+    sh.add_argument("--width", type=int, default=60)
+    sub.add_parser("status", help="o cache que o painel lê")
+    li = sub.add_parser("light", help="modo de iluminação")
+    li.add_argument("--mode", type=int, default=7)
+    li.add_argument("--brightness", type=int, default=5)
+    li.add_argument("--speed", type=int, default=3)
+    li.add_argument("--direction", type=int, default=0)
+    li.add_argument("--color", type=int, default=0, help="índice da paleta do firmware")
+    rg = sub.add_parser("rgb", help="cor RGB arbitrária")
+    rg.add_argument("color", help="RRGGBB, ex: ff0080")
+    rg.add_argument("--only", help="lista de teclas, ex: esc,f1,a")
+    rg.add_argument("--brightness", type=int, default=5)
+    rg.add_argument("--speed", type=int, default=4)
+    sub.add_parser("off", help="apaga as teclas")
+    ky = sub.add_parser("key", help="remapeia uma tecla")
+    ky.add_argument("key")
+    ky.add_argument("to")
+    ky.add_argument("--layer", default="fn", choices=("base", "fn"))
+    sl = sub.add_parser("sleep", help="tempo até o teclado dormir")
+    sl.add_argument("when")
+    sub.add_parser("modes", help="modos de iluminação do modelo")
+    sub.add_parser("selftest", help="checa o repo inteiro")
+    args = ap.parse_args()
+
+    if args.cmd == "selftest":
+        import selftest
+        return selftest.main()
+    if args.cmd == "devices":
+        return cmd_devices(args)
+    if args.cmd == "battery":
+        return cmd_battery(args)
+    if args.cmd == "modes":
+        return cmd_modes(args)
+    if args.cmd == "probe":
+        return 0 if battery.probe(args.wait, args.keep) else 1
+    if args.cmd == "status":
+        con = battery.db_open()
+        battery.write_status(con)
+        print(battery.status_text(con), end="")
+        return 0
+    if args.cmd == "raw":
+        battery.report_raw(battery.db_open(), args.days)
+        return 0
+    if args.cmd == "show":
+        return battery.report_show(battery.db_open(), args.days, args.width)
+    if args.cmd == "light":
+        return operar(args, "light", mode=args.mode, brightness=args.brightness,
+                      speed=args.speed, direction=args.direction, color=args.color)
+    if args.cmd == "rgb":
+        return operar(args, "rgb", color=args.color, only=args.only,
+                      brightness=args.brightness, speed=args.speed)
+    if args.cmd == "off":
+        return operar(args, "off")
+    if args.cmd == "key":
+        return operar(args, "remap", key=args.key, to=args.to, layer=args.layer)
+    if args.cmd == "sleep":
+        return operar(args, "sleep", when=args.when)
+    ap.error(f"comando não tratado: {args.cmd}")
+
+
+if __name__ == "__main__":
+    sys.exit(main() or 0)

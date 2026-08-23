@@ -2,12 +2,12 @@
 
 Estado vivo em 2026-08-07. O que cada camada tem de customizado e onde mora.
 Histórico e justificativas: `~/Documents/notas/ubuntu/teclado-abnt2-para-75-pct.md`,
-`checkpoints/LOG.md`, `battlog/README.md` e `f75ctl/PROTOCOL.md` (hardware antigo).
+`checkpoints/LOG.md`, `battery/README.md` e `devices/*/PROTOCOL.md`.
 
 **Trocou o hardware em 2026-08-07.** Saíram o teclado FreeWolf F75 (`1a2c:8fff`) e o
 mouse AJAZZ AJ139 (`a8a5:2255`); entraram o **Attack Shark K86** (dongle ROYUAN
-`3151:4011`) e o **Delux M900Pro** (receptor 8K `1d57:fa65`). O `f75ctl/` e o
-`battlog/battlog-f75.py` continuam válidos se aquele hardware voltar à mesa.
+`3151:4011`) e o **Delux M900Pro** (receptor 8K `1d57:fa65`). Os dois antigos continuam
+suportados como `devices/freewolf_f75/` e `devices/ajazz_aj139/`.
 
 ## 1. XKB — variante `victor(quotefix)`
 
@@ -39,7 +39,7 @@ perder a corrida às vezes, ele só rodava no login — e **plugar qualquer tecl
 GNOME reaplicar o layout dele por cima**, que foi o que derrubou tudo quando o K86
 chegou. Agora quem aplica é o próprio GNOME:
 
-- `install.sh` copia a variante pra `/usr/share/X11/xkb/symbols/victor`
+- `install.sh` copia `layout/victor` pra `/usr/share/X11/xkb/symbols/victor`
   e registra `victor`/`quotefix` no `/usr/share/X11/xkb/rules/evdev.xml`.
 - `gsettings ... sources "[('xkb','victor+quotefix'),('xkb','br')]"`.
 - Sobrevive a login **e** a hot-plug. Não tem corrida.
@@ -70,12 +70,13 @@ só reescreveria o sharkfin para funcionar em menos casos.
 ## 6. Cron — battlog
 
 ```
-*/10 * * * * /var/www/victor/keyboards/keyboard-config/battlog/battlog.py probe --wait 90
+*/10 * * * * /var/www/victor/keyboards/keyboard-mouse-config/kmctl probe --wait 90
 ```
 
 **Os dois resolvidos em 2026-08-08.** Teclado: byte 1 do frame de status do dongle. Mouse:
 byte 4 do report `0x03` (provisório — menos evidência). O `show` desenha os dois. Detalhes e
-o que já foi eliminado por teste em `battlog/README.md`.
+o que já foi eliminado por teste em `devices/attackshark_k86/PROTOCOL.md` e
+`devices/delux_m900pro/PROTOCOL.md`.
 
 **Ponto cego (medido em 2026-08-23): com o teclado no carregador, o percentual do dongle não
 vale.** O `0xF7` que o `probe` manda não é opcode válido, e o protocolo devolve *a resposta
@@ -91,14 +92,26 @@ o cabo plugado o dongle continua reportando bateria, então o log não fica com 
 
 ## 7. Widget de bateria no painel (2026-08-23)
 
-`gnome/battlog@victor/`, symlinkada pelo `install.sh` para
-`~/.local/share/gnome-shell/extensions/`. Mostra `⌨ 30%  🖱 68%` na barra de cima.
+`panel/battlog@victor/`, symlinkada pelo `install.sh` para
+`~/.local/share/gnome-shell/extensions/`. Mostra os dois percentuais na barra de cima.
 
 Lê `~/.cache/battlog-status`, escrito pelo `probe` do cron — a extensão não toca em
-hidraw nem em sqlite. Sem cron rodando (ou `ts` com mais de 30 min) ela mostra `—` em
-vez de um número velho. Detalhes em `battlog/README.md`.
+hidraw nem em sqlite, e nem escolhe modelo: isso é decisão do `devices.pick`. Sem cron
+rodando (ou `ts` com mais de 30 min) ela mostra `—` em vez de um número velho.
+Detalhes em `battery/README.md`.
 
 Aparece só depois de reiniciar o shell (X11: Alt+F2, `r`).
+
+## 8. Organização do repo (2026-08-23)
+
+Um diretório por modelo em `devices/`, com IDs, leitura de bateria, controle (se
+houver) e o protocolo em Markdown, tudo junto. `kmctl` é o único executável: ele não
+conhece modelo nenhum, pergunta ao `devices/` quem está plugado e oferece o que cada
+um declarar em `CAPS`. O que um modelo comprovadamente **não** faz vai em `WONT` e
+vira mensagem de erro — é onde mora o "o K86 não faz RGB por 2.4G, e por quê".
+
+Contrato e receita para adicionar um modelo: `devices/README.md`.
+`kmctl selftest` valida o contrato de todos os módulos sem precisar de hardware.
 
 ## Não ativo
 
@@ -106,4 +119,7 @@ Aparece só depois de reiniciar o shell (X11: Alt+F2, `r`).
   home row etc.), **revertidos pro `baseline`**. `./checkpoints/restore.sh <nome>` volta
   qualquer um. **Cuidado:** o `baseline` é anterior ao ajuste de 2026-08-06 (Shift+`'` ainda
   era `"` direto, sem `dead_circumflex`) — restaurá-lo desfaz esse ajuste silenciosamente.
-- `f75ctl/` — CLI completa do FreeWolf F75, hardware fora da mesa desde 2026-08-07.
+- **FreeWolf F75** e **AJAZZ AJ139** — hardware fora da mesa desde 2026-08-07, mas
+  suportados: `devices/freewolf_f75/` (bateria, luz, cor por tecla, remap, sono) e
+  `devices/ajazz_aj139/` (bateria). Sem como testar ao vivo aqui — o que dá para
+  verificar sem eles está no `kmctl selftest`, em asserts de bytes de pacote.

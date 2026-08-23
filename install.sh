@@ -11,7 +11,7 @@ cd "$(dirname "$(realpath "$0")")"
 XML=/usr/share/X11/xkb/rules/evdev.xml
 
 echo "==> variante XKB victor(quotefix)"
-sudo install -m644 xkb/victor /usr/share/X11/xkb/symbols/victor
+sudo install -m644 layout/victor /usr/share/X11/xkb/symbols/victor
 
 if grep -q "<name>victor</name>" "$XML"; then
   echo "    evdev.xml: entrada já existe"
@@ -51,11 +51,11 @@ PY
 fi
 
 echo "==> Compose (~/.XCompose)"
-if [ -e "$HOME/.XCompose" ] && ! cmp -s xkb/XCompose "$HOME/.XCompose"; then
+if [ -e "$HOME/.XCompose" ] && ! cmp -s layout/XCompose "$HOME/.XCompose"; then
   cp "$HOME/.XCompose" "$HOME/.XCompose.bak-$(date +%Y%m%d%H%M%S)"
   echo "    o que existia foi salvo em ~/.XCompose.bak-*"
 fi
-install -m644 xkb/XCompose "$HOME/.XCompose"
+install -m644 layout/XCompose "$HOME/.XCompose"
 
 echo "==> regras udev (hidraw sem root)"
 sudo install -m644 udev/*.rules /etc/udev/rules.d/
@@ -71,7 +71,7 @@ if command -v gsettings >/dev/null && [ -n "${XDG_CURRENT_DESKTOP:-}" ]; then
   echo "==> extensão do painel (bateria do teclado/mouse)"
   EXT="$HOME/.local/share/gnome-shell/extensions/battlog@victor"
   mkdir -p "$(dirname "$EXT")"
-  ln -sfnT "$PWD/gnome/battlog@victor" "$EXT"
+  ln -sfnT "$PWD/panel/battlog@victor" "$EXT"
   # `gnome-extensions enable` recusa uuid que o shell ainda não varreu (é o caso
   # numa instalação nova), então mexe direto no gsettings — mesma chave.
   python3 - <<'EXTPY'
@@ -101,11 +101,14 @@ aparece depois que o gnome-shell reiniciar:
 Depois disso o teclado sobe certo em todo login, e sobrevive a plugar/desplugar
 teclado — que é o que o arranjo por autostart não fazia.
 
-Se esta máquina tem o teclado/mouse e você quer o log de bateria, adicione ao
+Se esta máquina tem teclado/mouse suportado e você quer o log de bateria, adicione ao
 `crontab -e` (ajuste o caminho):
 
-  */10 * * * * /caminho/para/keyboard-config/battlog/battlog.py probe --wait 90 >/tmp/battlog.log 2>&1
+  */10 * * * * /caminho/para/keyboard-mouse-config/kmctl probe --wait 90 >/tmp/kmctl.log 2>&1
 
 É esse cron que alimenta a extensão do painel: ele reescreve ~/.cache/battlog-status
 a cada rodada. Sem cron, o painel mostra "—" (de propósito: número velho enganaria).
+
+`./kmctl devices` mostra quais modelos estão plugados e qual deles o painel usa
+em cada categoria; `./kmctl selftest` checa o repo sem precisar de hardware.
 EOF
