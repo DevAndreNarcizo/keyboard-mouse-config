@@ -106,6 +106,12 @@ diz em qual dos três caminhos o seu caiu:
 | **Página de bateria do HID** | **sim** | quem segue o padrão: o kernel cria a entrada em `/sys/class/power_supply` e a fonte genérica lista. Muito teclado e mouse de receptor 2.4G |
 | **Protocolo de fabricante** | **não** | o resto: a bateria só sai por opcode que ninguém documentou. Precisa de um diretório em `devices/` |
 
+**Attack Shark**: a marca está aqui, mas só como **teclado** (`attackshark_k86`).
+Não há módulo de mouse dela. Os IDs de hidraw dos mouses R5 Ultra (`373e:0046/47`)
+e X11 (`1d57:fa60/fa55`) já entraram nas regras udev — só a permissão, sem módulo
+— porque a regra de VID `1d57` prendia o PID do receptor Delux e não os cobriria.
+Nenhum foi testado aqui.
+
 O terceiro caso não é raro em periférico de jogo barato — é onde caem o Delux
 M800 PRO e o Attack Shark K86 daqui, e é a razão de este repo existir. Medido no
 M800 PRO: o descritor HID dele **não declara bateria nenhuma**, então o kernel não

@@ -12,3 +12,18 @@ KERNEL=="hidraw*", ATTRS{idVendor}=="38a9", MODE="0660", GROUP="plugdev", TAG+="
 
 # Receptor 8K do mouse (LXDDZ/Xenta 1d57:fa65)
 KERNEL=="hidraw*", ATTRS{idVendor}=="1d57", ATTRS{idProduct}=="fa65", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+
+# --- Mouses Attack Shark (2026-08-24) ---
+# NAO ha modulo de mouse Attack Shark neste repo: o attackshark_k86 e TECLADO.
+# Estes IDs entram so para a permissao de hidraw ja estar pronta, porque a regra
+# de VID 1d57 acima prende o PID fa65 (receptor do Delux) e nao cobriria um
+# Attack Shark do mesmo VID. Nenhum destes foi testado aqui — nao temos o
+# hardware. Fonte de cada um no comentario.
+#
+# R5 Ultra — de github.com/maxboeer/attackshark-battery-bridge
+KERNEL=="hidraw*", ATTRS{idVendor}=="373e", ATTRS{idProduct}=="0047", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+KERNEL=="hidraw*", ATTRS{idVendor}=="373e", ATTRS{idProduct}=="0046", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+# X11 (e talvez R1, protocolo parecido mas nao confirmado)
+# de github.com/HarukaYamamoto0/attack-shark-x11-driver
+KERNEL=="hidraw*", ATTRS{idVendor}=="1d57", ATTRS{idProduct}=="fa60", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+KERNEL=="hidraw*", ATTRS{idVendor}=="1d57", ATTRS{idProduct}=="fa55", MODE="0660", GROUP="plugdev", TAG+="uaccess"

@@ -148,6 +148,27 @@ Falar D-Bus em stdlib puro não é razoável, então o lado Bluetooth chama o
 `busctl` — que vem com o systemd, não é pacote Python. Sem ele, ou com o
 bluetoothd parado, a fonte devolve lista vazia e o resto do repo não se abala.
 
+## Com mais de um aparelho, quem é quem
+
+A chave é o `ident`, e cada fonte a monta de um jeito:
+
+| fonte | ident | único por unidade física? |
+|---|---|---|
+| `bluez_any` | `bt_` + MAC | **sim** |
+| `power_supply_any` | `ps_` + nome da entrada do sysfs | **sim** |
+| diretório de modelo | o id do diretório | **não — um por módulo** |
+
+Então dois aparelhos **diferentes** convivem sem problema: idents diferentes,
+histórico separado no banco, e um slot cada no painel, com o nome no menu.
+
+**Duas unidades do mesmo modelo, não.** O contrato é `find() -> handle | None`, e
+o `find_iface` devolve o primeiro que casar — a segunda unidade fica invisível, em
+silêncio. Não é difícil de resolver (um `discover()` no módulo de modelo, como as
+fontes já fazem), mas exige decidir um ident estável por unidade: o serial USB
+desses receptores vem vazio, e sobra o caminho da porta, que muda se a pessoa
+trocar de porta e aí parte o histórico em dois. Fica registrado como limitação
+conhecida em vez de resolvido pela metade.
+
 ## Dois jeitos de ler bateria, e como saber qual é o seu
 
 Os modelos daqui se dividem em dois, e confundir os dois custa uma tarde:

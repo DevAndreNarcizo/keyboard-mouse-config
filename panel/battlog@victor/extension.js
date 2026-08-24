@@ -19,6 +19,9 @@
 // mesmo tempo são três coisas para mostrar. A lista vem do arquivo, então
 // aparelho novo não pede mexer neste código.
 //
+// Na barra cabe ícone + número; o NOME vai no menu, porque com dois mouses ao
+// mesmo tempo dois ícones iguais com dois números não dizem qual é qual.
+//
 // Três estados, de propósito:
 //   - arquivo fresco com aparelhos  -> um slot para cada
 //   - arquivo fresco e vazio        -> widget SOME. Nada aqui tem bateria, e
@@ -32,6 +35,7 @@ import GObject from 'gi://GObject';
 import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const STATUS = GLib.build_filenamev([GLib.get_user_cache_dir(), 'battlog-status']);
@@ -83,7 +87,9 @@ function ler() {
 const Battlog = GObject.registerClass(
 class Battlog extends PanelMenu.Button {
     _init() {
-        super._init(0.0, 'battlog', true);  // true = sem menu; não há o que abrir
+        // Com menu: na barra cabe só ícone + número, e com dois mouses ao mesmo
+        // tempo isso não diz QUAL é qual. O menu mostra o nome de cada um.
+        super._init(0.0, 'battlog');
         this._box = new St.BoxLayout({style_class: 'panel-status-menu-box'});
         this.add_child(this._box);
         this._atualizar();
@@ -125,22 +131,35 @@ class Battlog extends PanelMenu.Button {
         this._box.add_child(slot);
     }
 
+    _item(texto, icone) {
+        const item = new PopupMenu.PopupImageMenuItem(texto, icone,
+            {reactive: false});
+        this.menu.addMenuItem(item);
+    }
+
     _atualizar() {
         let dados = null;
         try {
             dados = ler();
         } catch (e) {
-            // arquivo ainda não existe (cron nunca rodou) — cai no "—"
+            // arquivo ainda não existe (serviço nunca rodou) — cai no "—"
         }
         this._box.destroy_all_children();
+        this.menu.removeAll();
         if (dados === null) {
-            this._slot('battery-missing-symbolic', '—', 'cron do battlog parado');
+            this._slot('battery-missing-symbolic', '—', 'battlog sem dados');
+            this._item('Nenhuma leitura recente', 'battery-missing-symbolic');
+            this._item('systemctl --user status battlog.service',
+                'dialog-information-symbolic');
             this.visible = true;
             return;
         }
         for (const d of dados.devs) {
             const icone = ICONE[d.kind] ?? ICONE.other;
-            this._slot(icone, `${d.pct}%${d.carga ? '⚡' : ''}`, d.nome);
+            const valor = `${d.pct}%${d.carga ? '⚡' : ''}`;
+            this._slot(icone, valor, d.nome);
+            // é aqui que se sabe qual é qual quando há dois do mesmo tipo
+            this._item(`${d.nome} — ${valor}`, icone);
         }
         // fresco e vazio: nada aqui tem bateria, então nada a mostrar
         this.visible = dados.devs.length > 0;
