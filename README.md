@@ -72,17 +72,38 @@ ainda) está em [`devices/README.md`](devices/README.md).
 | id | modelo | tipo | o que faz |
 |---|---|---|---|
 | `attackshark_k86` | Attack Shark K86 | teclado | bateria |
+| `delux_m800pro` | Delux M800 PRO | mouse | bateria, cor dos estágios de DPI, remap de botão, sono |
 | `delux_m900pro` | Delux M900Pro | mouse | bateria |
 | `freewolf_f75` | FreeWolf F75 | teclado | bateria, luz, cor por tecla, remap, sono |
 | `ajazz_aj139` | AJAZZ AJ139 | mouse | bateria |
 
-Os dois primeiros são o hardware que está na mesa hoje; os dois últimos saíram
-em 2026-08-07 e continuam suportados.
+O K86 e o M900Pro são o hardware da mesa original; o M800 PRO entrou em
+2026-08-24 noutra máquina; o F75 e o AJ139 saíram em 2026-08-07 e continuam
+suportados.
+
+O M800 PRO foi o primeiro **mouse** com caps de controle, e isso obrigou a
+mudar o despacho do `kmctl`: `kmctl rgb`/`sleep`/`key` escolhiam sempre um
+teclado, porque no começo só o teclado tinha o que controlar. Agora quem opera é
+quem está plugado **e declara a cap** — e se mais de um declarar, o `kmctl` pede
+`--device` em vez de escolher sozinho.
 
 ## Três conclusões que custaram teste
 
 Valem para quem chegar aqui pelo Google:
 
+- **Nem todo receptor se anuncia — e "mudo" e "parado" são coisas diferentes.**
+  O M900Pro fala sozinho e o `battery()` dele escuta; o M800 PRO nunca fala, e
+  só responde a um `SET_FEATURE` seguido de `GET_FEATURE`. Descobrir isso exigiu
+  provar que o canal estava mudo *com o mouse em uso*: 60 s de captura deram
+  **12482** frames no canal de movimento e **zero** no canal de status. Sem essa
+  testemunha, o silêncio parece mouse parado, e o `GET_FEATURE` solto devolvendo
+  zeros parece o dongle morto do K86. Não era nem um nem outro.
+- **"Não teve efeito" pode ser o efeito estando invisível.** A primeira escrita
+  de cor no M800 PRO pareceu falhar: comando aceito, ACK no protocolo, nada na
+  mesa. A explicação pronta era a do K86 logo abaixo — dongle aceita e não
+  repassa. Errado: o LED de estágio de DPI daquele mouse **só pisca quando se
+  troca de estágio**. Apertando o botão de DPI, estava vermelho. Antes de
+  concluir que um comando não chegou, ache o jeito de fazer o efeito aparecer.
 - **Cor/RGB do K86 não funciona por 2.4G, e não é limitação de software.** O
   dongle responde *todo* opcode com um frame de status dele mesmo e nunca
   repassa nada pelo rádio — o teclado nem fica sabendo que alguém perguntou. Por

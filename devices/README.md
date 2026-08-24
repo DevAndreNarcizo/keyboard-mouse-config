@@ -81,10 +81,32 @@ que o próprio aparelho mostra.
 | id | modelo | tipo | caps |
 |---|---|---|---|
 | `attackshark_k86` | Attack Shark K86 | teclado | bateria |
+| `delux_m800pro` | Delux M800 PRO | mouse | bateria, cor, remap, sono |
 | `delux_m900pro` | Delux M900Pro | mouse | bateria |
 | `freewolf_f75` | FreeWolf F75 | teclado | bateria, luz, cor, remap, sono |
 | `ajazz_aj139` | AJAZZ AJ139 | mouse | bateria |
 
-Os dois últimos saíram da mesa em 2026-08-07 e não têm como ser testados ao
+O F75 e o AJ139 saíram da mesa em 2026-08-07 e não têm como ser testados ao
 vivo aqui — o que dá para verificar sem eles está no `selftest`, em asserts de
-bytes de pacote e de parser.
+bytes de pacote e de parser. Do M800 PRO, `battery` e `rgb` foram executados
+contra o hardware; `sleep` e `remap` estão no mesmo regime de assert.
+
+## Dois jeitos de ler bateria, e como saber qual é o seu
+
+Os modelos daqui se dividem em dois, e confundir os dois custa uma tarde:
+
+- **Quem se anuncia** (M900Pro, AJ139): o `battery()` abre o path e **escuta**.
+  Mouse parado não produz frame — isso é "parado", não "quebrado".
+- **Quem só responde** (K86, M800 PRO): o `battery()` **escreve e depois lê**,
+  por `HIDIOCSFEATURE` + `HIDIOCGFEATURE`. Escutar não dá nada, nunca.
+
+Para saber em qual grupo o seu está, capture o canal vendor **junto com o canal
+de movimento/teclado**. Se o de movimento enche e o vendor fica em zero, é do
+segundo grupo — foi assim que o M800 PRO se revelou (12482 frames contra 0).
+Sem essa testemunha você não distingue canal mudo de aparelho parado.
+
+**E um aviso que o M800 PRO tornou concreto:** ali o `writable=True` cai na
+interface que também declara o **teclado** do dongle. É a interface certa para
+`ioctl`, mas um `battery()` copiado de um modelo do primeiro grupo — que faz
+`os.read()` no path — gravaria o que o dono digita. Se o seu modelo é do segundo
+grupo, não leia o stream.

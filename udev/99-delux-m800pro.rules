@@ -1,0 +1,8 @@
+# Delux M800 PRO - acesso hidraw sem root.
+# O dongle enumera com strings do OEM ("XCTECH" / "Wireless-Receiver", VID da
+# TeLink), nao "Delux": nao da para achar esse mouse procurando o fabricante em
+# lsusb, so pelo VID:PID. Fonte dos IDs: xb-bx/m800-pro-driver, confirmado aqui.
+# Receptor 2.4G
+KERNEL=="hidraw*", ATTRS{idVendor}=="248a", ATTRS{idProduct}=="5b2f", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+# Modo cabo (PID diferente: plugar o cabo troca o device USB)
+KERNEL=="hidraw*", ATTRS{idVendor}=="248a", ATTRS{idProduct}=="5b2e", MODE="0660", GROUP="plugdev", TAG+="uaccess"

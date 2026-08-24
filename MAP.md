@@ -113,6 +113,34 @@ vira mensagem de erro — é onde mora o "o K86 não faz RGB por 2.4G, e por qu�
 Contrato e receita para adicionar um modelo: `devices/README.md`.
 `kmctl selftest` valida o contrato de todos os módulos sem precisar de hardware.
 
+## 9. Delux M800 PRO (2026-08-24) — máquina do André
+
+Esta seção descreve **outra máquina**, não a de 2026-08-07 das seções acima.
+Aqui o teclado é um Dell KB216 com fio (não suportado, e não precisa ser: fio
+não tem bateria) e o mouse é um **Delux M800 PRO** por receptor 2.4G.
+
+- **Do projeto, só a metade do mouse está instalada.** `udev/99-delux-m800pro.rules`,
+  o cron do `probe` e a extensão do painel. A camada XKB (`victor(quotefix)`,
+  `~/.XCompose`, os `gsettings` de input-sources) **não** foi aplicada — o layout
+  desta máquina é `br` puro, e trocá-lo não tem relação com o mouse. Quem quiser
+  a parte de teclado depois roda o `install.sh`, que faz as duas.
+- O dongle enumera como `248a:5b2f` com strings **XCTECH / Wireless-Receiver**
+  (VID da TeLink). Procurar "Delux" no `lsusb` não acha nada.
+- Bateria por request/response, não por anúncio: `SET_FEATURE` opcode `0x20` no
+  report `0x0c` da interface 1, depois `GET_FEATURE`. Byte 18 = percentual.
+  Medido, não deduzido — e o canal foi provado mudo com o mouse em uso.
+- O mouse é o primeiro a ter caps de escrita, o que obrigou a mudar o despacho
+  do `kmctl` (ver `devices/delux_m800pro/PROTOCOL.md` e o `escolher()`).
+- **`battery` e `rgb` foram executados contra o hardware.** A flag de carga foi
+  confirmada plugando o cabo (byte 19 vira 1, e só ele e o percentual se movem).
+  O `rgb` funciona — mas o efeito **só aparece apertando o botão de DPI**, o que
+  quase produziu um falso negativo.
+- `sleep` e `remap` nunca correram no mouse: só assert de byte no selftest.
+  `--dry-run` antes.
+- **Modo cabo (`248a:5b2e`) segue sem teste.** Cabo numa porta da máquina
+  carrega, mas não enumera nada — zero evento USB. Cabo, header do painel
+  frontal ou firmware, não se sabe.
+
 ## Não ativo
 
 - `checkpoints/01..06` — experimentos de remap de 2026-08-05 (aspas no `` ` ``, dead keys na

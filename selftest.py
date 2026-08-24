@@ -9,12 +9,13 @@ import time
 
 import battery
 import devices
-from devices import ajazz_aj139, attackshark_k86, delux_m900pro, freewolf_f75
+from devices import (ajazz_aj139, attackshark_k86, delux_m800pro,
+                     delux_m900pro, freewolf_f75)
 
 
 def contrato():
     n = devices.check()
-    assert n >= 4, f"esperava ao menos os 4 modelos de casa, achei {n}"
+    assert n >= 5, f"esperava ao menos os 5 modelos de casa, achei {n}"
     return f"contrato ok em {n} modelos"
 
 
@@ -43,7 +44,26 @@ def parsers():
     ruim = bytearray(pkt)
     ruim[3] ^= 0xFF  # checksum quebrado = pacote picado
     assert ajazz_aj139.parse(bytes(ruim)) is None
-    return "parsers ok nos 4 modelos"
+    # M800 PRO: frame medido no hardware (58%, sem carga). Canal e
+    # request/response, entao o parser exige o opcode ecoado no byte 2 E a
+    # assinatura "M802" nos bytes 8..11 - sem isso, resposta de outro opcode
+    # tem o mesmo tamanho e viraria percentual falso.
+    real = bytes.fromhex("0c 01 20 00 01 01 10 00 4d 38 30 32 25 01 00 70 04 ff"
+                         " 3a 00 ff 01 00 00 87 5c 08 3f ff f4 6f 2d 39")
+    r = delux_m800pro.parse(real)
+    assert (r.pct, r.charging) == (58, 0), r
+    assert r.raw == real, "raw tem que guardar o frame inteiro"
+    for nome, mexe in (
+            ("opcode nao ecoado", {2: 0x21}),
+            ("sem a assinatura M802", {8: 0x00}),
+            ("percentual em 0", {18: 0}),
+            ("percentual acima de 100", {18: 200})):
+        ruim = bytearray(real)
+        for off, val in mexe.items():
+            ruim[off] = val
+        assert delux_m800pro.parse(bytes(ruim)) is None, nome
+    assert delux_m800pro.parse(real[:19]) is None, "frame curto"
+    return "parsers ok nos 5 modelos"
 
 
 def pacotes_f75():
@@ -86,6 +106,68 @@ def pacotes_f75():
     return "pacotes do F75 batem com o PROTOCOL.md"
 
 
+def pacotes_m800pro():
+    """Os bytes que o M800 PRO poria no fio, contra os literais do driver de
+    referencia (xb-bx/m800-pro-driver).
+
+    `battery` foi executado contra o hardware; estes tres nao. Isto e o que
+    segura: se alguem mexer nos TEMPLATES ou nos offsets, quebra aqui em vez de
+    desconfigurar o mouse de alguem em silencio.
+    """
+    # 0x06: cor nos 5 estagios, bytes 7..21. Os bytes 22..32 do template nao
+    # estao explicados (o len diz 24 e so 15 sao cor) e sao preservados.
+    _, log = delux_m800pro.rgb(None, "00ff80", dry=True)
+    assert log[0] == (">> 0c 01 06 00 01 01 18 00 ff 80 00 ff 80 00 ff 80 00 ff"
+                      " 80 00 ff 80 00 ff ff ff ff ff ff ff ff 00 00"), log[0]
+    # --only sao estagios de DPI, nao teclas: so o estagio 3 (bytes 13..15) muda,
+    # e os outros quatro caem no padrao do template - o 0x06 escreve os 5 juntos
+    # e nao ha opcode que leia os atuais, entao preservar e impossivel.
+    msg, log = delux_m800pro.rgb(None, "ff0000", only="3", dry=True)
+    assert log[0] == (">> 0c 01 06 00 01 01 18 00 ff 00 00 ff 00 ff 00 00 ff 00"
+                      " ff ff ff 00 00 ff ff ff ff ff ff ff ff 00 00"), log[0]
+    assert "padrao de fabrica" in msg or "padrão de fábrica" in msg, msg
+
+    # forma de 5 cores: controle total, um RRGGBB por estagio nos bytes 7..21
+    _, log = delux_m800pro.rgb(None, "ff0000,00ff00,0000ff,ffffff,000000",
+                               dry=True)
+    assert log[0] == (">> 0c 01 06 00 01 01 18 ff 00 00 00 ff 00 00 00 ff ff ff"
+                      " ff 00 00 00 00 ff ff ff ff ff ff ff ff 00 00"), log[0]
+
+    # 0x0b: minutos direto no byte 7
+    _, log = delux_m800pro.sleep(None, 5, dry=True)
+    assert log[0].startswith(">> 0c 01 0b 00 01 01 02 05 00"), log[0]
+
+    # 0x04: byte 7 = botao, 8..10 = os 3 bytes da funcao (keys.h)
+    _, log = delux_m800pro.remap(None, "wheel", "playpause", dry=True)
+    assert log[0].startswith(">> 0c 01 04 00 01 01 04 02 80 cd 00 00"), log[0]
+    _, log = delux_m800pro.remap(None, "mouse4", "dpilock/1200", dry=True)
+    assert log[0].startswith(">> 0c 01 04 00 01 01 04 04 50 0b 00 00"), log[0]
+
+    # o que tem que ser recusado antes de chegar no fio
+    for nome, chamada in (
+            ("cor invalida", lambda: delux_m800pro.rgb(None, "xyz", dry=True)),
+            ("estagio fora de 1..5",
+             lambda: delux_m800pro.rgb(None, "00ff00", only="9", dry=True)),
+            ("2 cores (nem 1 nem 5)",
+             lambda: delux_m800pro.rgb(None, "00ff00,ff0000", dry=True)),
+            ("5 cores junto com --only",
+             lambda: delux_m800pro.rgb(None, "ff0000,00ff00,0000ff,fff,000000",
+                                       only="2", dry=True)),
+            ("sleep never", lambda: delux_m800pro.sleep(None, "never", dry=True)),
+            ("sleep fora de 3..10", lambda: delux_m800pro.sleep(None, 2, dry=True)),
+            ("botao inexistente",
+             lambda: delux_m800pro.remap(None, "mouse9", "mute", dry=True)),
+            ("funcao inexistente",
+             lambda: delux_m800pro.remap(None, "lmb", "nada", dry=True))):
+        try:
+            chamada()
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"M800 PRO aceitou {nome}")
+    return "pacotes do M800 PRO batem com o driver de referencia"
+
+
 def analise():
     def s(*seqs):
         return [(i, bytes(b)) for i, b in enumerate(seqs)]
@@ -123,7 +205,8 @@ def banco():
 
 
 def main():
-    for f in (contrato, parsers, pacotes_f75, analise, banco):
+    for f in (contrato, parsers, pacotes_f75, pacotes_m800pro, analise,
+              banco):
         print(f"  {f():.<60} ok")
     print("selftest ok")
     return 0
