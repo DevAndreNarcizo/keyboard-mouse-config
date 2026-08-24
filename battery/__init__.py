@@ -153,7 +153,9 @@ def watch(interval=20, record=600, heartbeat=300, wait=3, keep=KEEP_DAYS,
     ultimos = {}
     try:
         while True:
-            presentes = devices.present()
+            # refresh obrigatório: este laço vive horas, e sem descartar o
+            # memo do BlueZ a lista de aparelhos ficaria a do primeiro ciclo
+            presentes = devices.present(refresh=True)
             leituras = ler_todos(wait, calado, presentes)
             for f, r in leituras:
                 ultimos[f.ident] = r

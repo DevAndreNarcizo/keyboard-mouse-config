@@ -375,6 +375,47 @@ def batimento():
     return "comparacao do cache ignora o ts"
 
 
+def memo_do_bluez():
+    """O memo da lista do BlueZ tem que envelhecer.
+
+    Sem isto, um processo longo -- o `watch` -- congela a lista no primeiro ciclo
+    e fone que conecta depois nunca e descoberto. Foi um bug real: o risco estava
+    escrito no docstring e nao tratado.
+    """
+    chamadas = []
+
+    def falso(*args):
+        chamadas.append(args)
+        n = len(chamadas)
+        return {"data": [{f"/org/bluez/dev_{n}": {
+            "org.bluez.Device1": {"Connected": {"data": True}},
+        }}]}
+
+    real_busctl, real_memo, real_quando = (
+        devices._busctl, devices._bluez_memo, devices._bluez_quando)
+    devices._busctl = falso
+    devices._bluez_memo, devices._bluez_quando = None, 0.0
+    try:
+        a = devices.bluez_objects()
+        assert list(a) == ["/org/bluez/dev_1"], a
+        # dentro do TTL, nao refaz: e o que evita quatro forks num `kmctl devices`
+        b = devices.bluez_objects()
+        assert list(b) == ["/org/bluez/dev_1"], b
+        assert len(chamadas) == 1, chamadas
+        # refresh descarta na hora, sem esperar o TTL
+        c = devices.bluez_objects(refresh=True)
+        assert list(c) == ["/org/bluez/dev_2"], c
+        assert len(chamadas) == 2
+        # e o TTL sozinho tambem descarta, para quem esquecer o refresh
+        devices._bluez_quando -= devices.BLUEZ_TTL + 1
+        d = devices.bluez_objects()
+        assert list(d) == ["/org/bluez/dev_3"], d
+    finally:
+        devices._busctl = real_busctl
+        devices._bluez_memo, devices._bluez_quando = real_memo, real_quando
+    return "memo do BlueZ envelhece"
+
+
 def despertadores():
     """Os filtros de dica do wake.py, sem precisar de udev nem de BlueZ.
 
@@ -541,7 +582,8 @@ def banco():
 def main():
     for f in (contrato, parsers, pacotes_f75, pacotes_m800pro, percentual,
               eco_do_seq, fontes_genericas, sonda_de_familia, deducao,
-              batimento, presente_mas_calado, despertadores, analise, banco):
+              batimento, presente_mas_calado, memo_do_bluez,
+              despertadores, analise, banco):
         print(f"  {f():.<60} ok")
     print("selftest ok")
     return 0

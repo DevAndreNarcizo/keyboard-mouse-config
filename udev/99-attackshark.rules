@@ -27,3 +27,4 @@ KERNEL=="hidraw*", ATTRS{idVendor}=="373e", ATTRS{idProduct}=="0046", MODE="0660
 # de github.com/HarukaYamamoto0/attack-shark-x11-driver
 KERNEL=="hidraw*", ATTRS{idVendor}=="1d57", ATTRS{idProduct}=="fa60", MODE="0660", GROUP="plugdev", TAG+="uaccess"
 KERNEL=="hidraw*", ATTRS{idVendor}=="1d57", ATTRS{idProduct}=="fa55", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+KERNEL=="hidraw*", ATTRS{idVendor}=="1d57", ATTRS{idProduct}=="fa61", MODE="0660", GROUP="plugdev", TAG+="uaccess"

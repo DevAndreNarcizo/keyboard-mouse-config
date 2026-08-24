@@ -25,6 +25,7 @@ import os
 import pkgutil
 import subprocess
 import sys
+import time
 
 # O que uma leitura de bateria devolve. `raw` é o frame cru (b"" se o modelo não
 # expõe um): é ele que alimenta a tabela `raw` do histórico e o `kmctl raw`,
@@ -121,7 +122,15 @@ def find_iface(ids, writable=False, at_start=False):
 # ela não existir, ou o bluetoothd estiver parado, tudo aqui devolve vazio e o
 # resto do repo segue funcionando.
 
+# Memo com validade curta. Ele existe para um `kmctl devices` não forkar o
+# `busctl` quatro vezes na mesma execução; **não** pode sobreviver a um ciclo do
+# `watch`, que é processo longo — enquanto sobreviveu, fone que conectava depois
+# do serviço subir nunca era descoberto, porque a lista ficava congelada no
+# instante do start. Houve uma versão sem validade nenhuma, com o risco escrito no
+# docstring e não tratado.
 _bluez_memo = None
+_bluez_quando = 0.0
+BLUEZ_TTL = 1.0
 
 
 def _busctl(*args):
@@ -138,19 +147,24 @@ def _busctl(*args):
         return None
 
 
-def bluez_objects():
+def bluez_objects(refresh=False):
     """{path: {interface: {prop: valor}}} de tudo que o BlueZ conhece. {} se não
     der para falar com ele.
 
-    Memoizado por processo. O `kmctl` é one-shot, então não envelhece; num
-    processo longo envelheceria, e é por isso que quem lê **percentual** usa
-    `bluez_pct`, que sempre vai ao barramento.
+    Memoizado por `BLUEZ_TTL` segundos. `refresh=True` descarta o memo — é o que
+    o `watch` usa a cada ciclo, porque um despertador pode chegar meio segundo
+    depois da última leitura e o TTL sozinho devolveria a lista velha.
+
+    O TTL é rede de segurança para quem escrever outro laço e esquecer o
+    `refresh`: erra por até um segundo, não para sempre.
     """
-    global _bluez_memo
-    if _bluez_memo is not None:
+    global _bluez_memo, _bluez_quando
+    if (not refresh and _bluez_memo is not None
+            and time.monotonic() - _bluez_quando < BLUEZ_TTL):
         return _bluez_memo
     got = _busctl("call", "org.bluez", "/",
                   "org.freedesktop.DBus.ObjectManager", "GetManagedObjects")
+    _bluez_quando = time.monotonic()
     try:
         crus = got["data"][0]
     except (TypeError, KeyError, IndexError):
@@ -218,8 +232,11 @@ def _achados_de(mod, fonte):
         return []
 
 
-def present():
+def present(refresh=False):
     """Tudo que está aqui agora e tem bateria, como lista de `Found`.
+
+    `refresh=True` descarta os memos das fontes antes de olhar. É obrigatório em
+    laço longo: sem isso a lista de Bluetooth fica congelada no primeiro ciclo.
 
     Módulos de modelo vêm primeiro e **reservam** o handle deles; depois as
     fontes genéricas entram com o que sobrou. É o que garante que um aparelho
@@ -234,6 +251,8 @@ def present():
     A dedução só funciona quando os dois lados falam do mesmo handle. Forçar
     identidade entre barramentos diferentes daria mais erro que acerto.
     """
+    if refresh:
+        bluez_objects(refresh=True)
     mods = modules()
     out, vistos = [], set()
     for fonte in (False, True):

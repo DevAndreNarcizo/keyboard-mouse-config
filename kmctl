@@ -7,6 +7,7 @@ no instante em que o diretório dele existe.
 
     kmctl devices                  quem é suportado, quem está plugado
     kmctl scan                     este aparelho vai aparecer? e se não, por quê
+    kmctl dump                     despeja TUDO de um aparelho novo, para colar
     kmctl battery                  percentual agora (leitura ao vivo)
     kmctl probe                    grava uma rodada no histórico (é o do cron)
     kmctl watch                    fica lendo e atualizando o painel (é o serviço)
@@ -191,6 +192,10 @@ def main():
 
     sub.add_parser("devices", help="modelos suportados e quem está plugado")
     sub.add_parser("scan", help="diagnóstico: por que um aparelho não aparece")
+    dp = sub.add_parser("dump", help="despeja tudo de um aparelho novo (para colar)")
+    dp.add_argument("--seconds", type=float, default=20,
+                    help="segundos de escuta dos canais (default: 20). USE o "
+                         "aparelho durante, senão o silêncio não diz nada")
     ba = sub.add_parser("battery", help="percentual agora (leitura ao vivo)")
     ba.add_argument("--wait", type=float, default=5,
                     help="segundos esperando o mouse se anunciar (default: 5)")
@@ -255,6 +260,9 @@ def main():
         return cmd_devices(args)
     if args.cmd == "scan":
         return cmd_scan(args)
+    if args.cmd == "dump":
+        import dump
+        return dump.relatorio(args.seconds)
     if args.cmd == "battery":
         return cmd_battery(args)
     if args.cmd == "modes":
