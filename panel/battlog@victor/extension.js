@@ -6,7 +6,7 @@
 //
 //     ts 1787589472
 //     dev mouse delux_m800pro 100 0 Delux M800 PRO
-//     dev headset jbl_wave_buds_2 90 - JBL Wave Buds 2
+//     dev headset bt_501b6a0cf973 90 - JBL Wave Buds 2
 //
 // Campos: `dev <kind> <ident> <pct> <carga> <nome...>`. O nome vem por último
 // porque é o único que pode ter espaço. Carga é 0, 1 ou "-" (desconhecida).

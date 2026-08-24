@@ -20,7 +20,7 @@ import fcntl
 import os
 import time
 
-from .. import Reading, find_iface, pct_ok
+from .. import Reading, find_iface, hid_get_feature, hid_set_feature, pct_ok
 
 NAME = "Delux M800 PRO"
 KIND = "mouse"
@@ -69,12 +69,8 @@ TEMPLATES = {
 }
 
 
-def _ioc(direction, size, nr):
-    return (direction << 30) | (size << 16) | (ord("H") << 8) | nr
-
-
-SFEATURE = _ioc(3, SIZE, 0x06)
-GFEATURE = _ioc(3, SIZE, 0x07)
+SFEATURE = hid_set_feature(SIZE)
+GFEATURE = hid_get_feature(SIZE)
 
 
 def find():
@@ -91,12 +87,21 @@ def _ask(fd, packet):
 
 
 def _handshake(fd):
-    """(seq aceito, frame de status). O dispositivo ignora seq que não é o que
-    ele espera, e o esperado alterna — daí varrer em vez de assumir 1."""
+    """(seq usado, frame de status), ou (None, None).
+
+    Varre o seq porque a **primeira** pergunta depois de ociosidade costuma ser
+    descartada — medido. Não é regra de sequência: qualquer valor serve, e a
+    resposta ecoa o que foi mandado (ver PROTOCOL.md).
+
+    É justamente por ecoar que o `seq` vai ao `parse()`: quando a pergunta é
+    descartada, o `GET_FEATURE` devolve a resposta **anterior**, que tem o opcode
+    certo, a assinatura certa e um percentual plausível — e só o eco do seq a
+    denuncia como velha.
+    """
     for seq in range(1, SEQ_TRIES + 1):
         req = bytearray(SIZE)
         req[0], req[1], req[2], req[4] = REPORT, 0x01, OP_STATUS, seq
-        got = parse(_ask(fd, req))
+        got = parse(_ask(fd, req), seq=seq)
         if got:
             return seq, got
     return None, None
@@ -122,7 +127,7 @@ def battery(path, wait=0):
 CARGA = {0: 0, 1: 1, 2: 1}
 
 
-def parse(frame):
+def parse(frame, seq=None):
     """`0c 01 20 00 SS 01 10 00 'M802' … PP CH …` -> Reading.
 
     Byte 18 é o percentual e o 19 o estado de carga. Três coisas casam antes de
@@ -132,7 +137,10 @@ def parse(frame):
     - byte 2 ecoa o opcode `0x20` — é o mesmo teste "estou falando com o
       aparelho ou com o buffer do dongle?" que o K86 obrigou a aprender;
     - bytes 8..11 são o ASCII `M802`, com que o mouse assina o frame;
-    - o percentual tem que estar em 1..100.
+    - o percentual tem que ser crível (`pct_ok`);
+    - e, quando `seq` é dado, o byte 4 tem que ecoá-lo. Sem isso, a resposta
+      **anterior** passa por resposta desta pergunta: ela também ecoa o opcode e
+      também tem o `M802`. É o único campo que distingue as duas.
 
     **O percentual não vale enquanto carrega** — ver PROTOCOL.md. Ele empaca e
     depois salta (medido: 90 min cravado em 64%, depois +30 de uma vez). O `raw`
@@ -143,6 +151,8 @@ def parse(frame):
     if frame[0] != REPORT or frame[2] != OP_STATUS:
         return None
     if frame[8:12] != MODEL:
+        return None
+    if seq is not None and frame[4] != seq:
         return None
     if not pct_ok(frame[18]):
         return None
@@ -159,7 +169,12 @@ def _packet(kind, seq, fields):
 
 
 def _send(path, kind, fields, msg, dry):
-    """Monta, e (se não for dry) descobre o seq corrente e escreve."""
+    """Monta, e (se não for dry) escreve **conferindo o ACK**.
+
+    O `dry` usa `seq=1` como marcador: o seq real só se conhece depois do
+    handshake, e travar um valor fixo é o que deixa o pacote do `--dry-run`
+    comparável byte a byte no selftest.
+    """
     if dry:
         return msg, [f">> {_packet(kind, 1, fields).hex(' ')}"]
     fd = os.open(path, os.O_RDWR)
@@ -168,9 +183,21 @@ def _send(path, kind, fields, msg, dry):
         if seq is None:
             raise ValueError(f"{NAME} não respondeu ao status — mouse dormindo?")
         # o driver de referência manda comando com o seq seguinte ao aceito
-        pkt = _packet(kind, (seq + 1) & 0xFF, fields)
-        _ask(fd, pkt)
-        return msg, [f">> {pkt.hex(' ')}", f"   (bateria {got.pct}%)"]
+        escrita = (seq + 1) & 0xFF
+        pkt = _packet(kind, escrita, fields)
+        ans = _ask(fd, pkt)
+        opcode = TEMPLATES[kind][2]
+        # O aparelho ACKa: ecoa o opcode no byte 2, o seq no 4, e liga o byte 3.
+        # Conferir isso é o que separa "mandei" de "chegou" — e sem a conferência
+        # um comando recusado era anunciado como sucesso.
+        if ans[2] != opcode or ans[4] != escrita or ans[3] != 0x01:
+            raise ValueError(
+                f"{NAME} não confirmou o comando (esperava eco do opcode "
+                f"0x{opcode:02x}, seq {escrita} e ACK 0x01 no byte 3; "
+                f"voltou {ans[:6].hex(' ')})")
+        return msg, [f">> {pkt.hex(' ')}",
+                     f"<< {ans[:8].hex(' ')}  (ACK ok)",
+                     f"   (bateria {got.pct}%)"]
     finally:
         os.close(fd)
 

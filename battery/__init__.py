@@ -36,7 +36,8 @@ def probe(wait=60, keep=KEEP_DAYS, db=DB, echo=print):
     """Lê todos os modelos plugados e grava. Devolve quantos responderam."""
     agora = int(time.time())
     lidos, brutos = [], []
-    for f in devices.present():
+    achados = devices.present()
+    for f in achados:
         try:
             r = f.mod.battery(f.handle, wait)
         except PermissionError:
@@ -63,18 +64,21 @@ def probe(wait=60, keep=KEEP_DAYS, db=DB, echo=print):
     dropped = sum(con.execute(f"DELETE FROM {t} WHERE ts < ?", (cut,)).rowcount
                   for t in ("battery", "raw"))
     con.commit()
-    write_status(con)
+    # a mesma lista da leitura: descobrir de novo forkaria `busctl` e releria
+    # todo descritor de hidraw, e um aparelho que saísse no meio faria o arquivo
+    # discordar do que acabou de ser lido
+    write_status(con, achados=achados)
     if dropped:
         echo(f"({dropped} amostras com mais de {keep} dias apagadas)")
     return len(lidos)
 
 
-def status_text(con):
+def status_text(con, achados=None):
     """O que o painel lê. **Uma linha por aparelho presente**, não por categoria:
 
         ts 1787588709
         dev mouse delux_m800pro 100 - Delux M800 PRO
-        dev headset jbl_wave_buds_2 90 - JBL Wave Buds 2
+        dev headset bt_501b6a0cf973 90 - JBL Wave Buds 2
 
     Campos: `dev <kind> <ident> <pct> <carga>` e o nome legível no fim, que é o
     único que pode ter espaço. Carga é `0`, `1` ou `-` (desconhecida).
@@ -90,21 +94,29 @@ def status_text(con):
     relógio e mostra "—" em vez de um número velho.
     """
     linhas = [f"ts {int(time.time())}"]
-    for f in devices.present():
+    for f in devices.present() if achados is None else achados:
         row = con.execute("SELECT pct, charging FROM battery WHERE device = ? "
                           "ORDER BY ts DESC LIMIT 1", (f.ident,)).fetchone()
         if not row:
             continue
         carga = "-" if row[1] is None else str(int(row[1]))
-        linhas.append(f"dev {f.kind} {f.ident} {row[0]} {carga} {f.name}")
+        # O nome é o único campo livre, e **não é nosso**: vem do `Alias` do
+        # BlueZ (que o próprio aparelho anuncia) ou do `HID_NAME`. Um `\n` ali
+        # injetaria uma linha `dev` inteira e o painel desenharia um aparelho
+        # que não existe. Colapsar espaço em branco resolve na origem.
+        nome = " ".join(f.name.split()) or f.ident
+        linhas.append(f"dev {f.kind} {f.ident} {row[0]} {carga} {nome}")
     return "\n".join(linhas) + "\n"
 
 
-def write_status(con, path=STATUS):
+def write_status(con, path=STATUS, achados=None, texto=None):
+    """`texto` pronto evita gerar duas vezes — é o que faz o `kmctl status`
+    imprimir exatamente o que gravou, em vez de descobrir o hardware de novo
+    e poder discordar do arquivo."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"  # troca atômica: o painel relê a qualquer momento
     with open(tmp, "w") as f:
-        f.write(status_text(con))
+        f.write(status_text(con, achados) if texto is None else texto)
     os.replace(tmp, path)
 
 

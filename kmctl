@@ -42,15 +42,30 @@ def escolher(args, cap=None):
     categoria. Antes o despacho era fixo em teclado, porque no começo só o
     teclado tinha o que controlar.
     """
-    achados = devices.present()
     if args.device:
-        for f in achados:
-            if args.device in (f.ident, f.mod.ID):
-                return f.mod, f.handle
+        # id de módulo primeiro, e sem varrer nada: é o que faz
+        # `--device <modelo> --dry-run` funcionar sem hardware sem pagar por uma
+        # descoberta que não usaria (glob de hidraw + fork de `busctl`).
         for mod in devices.modules():
-            if mod.ID == args.device:
-                return mod, None  # ausente: serve para --dry-run
+            if mod.ID != args.device:
+                continue
+            if not getattr(mod, "SOURCE", False):
+                return mod, mod.find()
+            seus = [f for f in devices.present() if f.mod is mod]
+            if len(seus) == 1:
+                return seus[0].mod, seus[0].handle
+            if not seus:
+                return mod, None
+            # uma fonte acha vários, e o id dela é o mesmo para todos: escolher
+            # o primeiro em silêncio seria pior que pedir o ident
+            quais = ", ".join(f.ident for f in seus)
+            sys.exit(f"`{args.device}` achou mais de um aparelho ({quais}) — "
+                     "escolha um pelo ident em --device")
+        for f in devices.present():
+            if f.ident == args.device:
+                return f.mod, f.handle
         sys.exit(f"não conheço {args.device!r} — veja `kmctl devices`")
+    achados = devices.present()
     if cap:
         fazem = [f for f in achados if cap in f.mod.CAPS]
         if len(fazem) == 1:
@@ -203,8 +218,11 @@ def main():
         return 0 if battery.probe(args.wait, args.keep) else 1
     if args.cmd == "status":
         con = battery.db_open()
-        battery.write_status(con)
-        print(battery.status_text(con), end="")
+        # uma descoberta só: imprimir o que foi gravado, não uma segunda leitura
+        # que um aparelho saindo no meio faria discordar do arquivo
+        texto = battery.status_text(con, devices.present())
+        battery.write_status(con, texto=texto)
+        print(texto, end="")
         return 0
     if args.cmd == "raw":
         battery.report_raw(battery.db_open(), args.days)

@@ -10,7 +10,7 @@ import fcntl
 import os
 import time
 
-from .. import Reading, find_iface, pct_ok
+from .. import Reading, find_iface, hid_get_feature, hid_set_feature, pct_ok
 
 NAME = "Attack Shark K86"
 KIND = "keyboard"
@@ -25,10 +25,9 @@ WONT = {
     "sleep": "idem light",
 }
 
-# ioctls do hidraw (linux/hidraw.h): _IOC(READ|WRITE, 'H', nr, tamanho)
-_IOWR = lambda nr, n: (3 << 30) | (n << 16) | (0x48 << 8) | nr
-HIDIOCSFEATURE = lambda n: _IOWR(0x06, n)
-HIDIOCGFEATURE = lambda n: _IOWR(0x07, n)
+# ioctls do hidraw: o cálculo mora em devices/, junto do resto do transporte HID
+HIDIOCSFEATURE = hid_set_feature
+HIDIOCGFEATURE = hid_get_feature
 
 OPCODE = 0xF7  # qualquer um serve: o dongle responde o mesmo frame a todos
 

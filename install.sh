@@ -109,6 +109,6 @@ Se esta máquina tem teclado/mouse suportado e você quer o log de bateria, adic
 É esse cron que alimenta a extensão do painel: ele reescreve ~/.cache/battlog-status
 a cada rodada. Sem cron, o painel mostra "—" (de propósito: número velho enganaria).
 
-`./kmctl devices` mostra quais modelos estão plugados e qual deles o painel usa
-em cada categoria; `./kmctl selftest` checa o repo sem precisar de hardware.
+`./kmctl devices` mostra o que está aqui com bateria — é a mesma lista que o
+painel desenha; `./kmctl selftest` checa o repo sem precisar de hardware.
 EOF

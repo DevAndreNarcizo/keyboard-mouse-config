@@ -37,11 +37,30 @@ Reading = collections.namedtuple("Reading", "pct charging raw")
 # que vai para o banco e para o cache do painel.
 Found = collections.namedtuple("Found", "mod ident name kind handle")
 
-# Vocabulário de categorias. Serve para escolher ícone no painel e para o
-# `--device`/config desempatarem; não é uma taxonomia com pretensão. "other" é o
-# destino honesto de qualquer coisa que uma fonte genérica ache e não saiba
-# classificar — melhor que forçar num rótulo errado.
+# Vocabulário de categorias. Serve para o painel escolher ícone; não é taxonomia
+# com pretensão. "other" é o destino honesto de qualquer coisa que uma fonte
+# genérica ache e não saiba classificar — melhor que forçar num rótulo errado.
 KINDS = ("keyboard", "mouse", "headset", "phone", "gamepad", "other")
+
+
+def hid_ioc(nr, size):
+    """Número de ioctl do hidraw (`linux/hidraw.h`): `_IOC(READ|WRITE,'H',nr,n)`.
+
+    Estava calculado em dois módulos — no K86 com `0x48`, no M800 PRO com
+    `ord("H")`, que é a mesma constante escrita de dois jeitos. Mora aqui porque
+    é transporte HID, que é o que este arquivo já guarda (`find_iface`).
+    """
+    return (3 << 30) | (size << 16) | (ord("H") << 8) | nr
+
+
+def hid_set_feature(size):
+    """HIDIOCSFEATURE: escreve um report Feature."""
+    return hid_ioc(0x06, size)
+
+
+def hid_get_feature(size):
+    """HIDIOCGFEATURE: lê um report Feature."""
+    return hid_ioc(0x07, size)
 
 
 def pct_ok(v):
@@ -128,16 +147,28 @@ def bluez_objects():
     `bluez_pct`, que sempre vai ao barramento.
     """
     global _bluez_memo
-    if _bluez_memo is None:
-        got = _busctl("call", "org.bluez", "/",
-                      "org.freedesktop.DBus.ObjectManager", "GetManagedObjects")
+    if _bluez_memo is not None:
+        return _bluez_memo
+    got = _busctl("call", "org.bluez", "/",
+                  "org.freedesktop.DBus.ObjectManager", "GetManagedObjects")
+    try:
+        crus = got["data"][0]
+    except (TypeError, KeyError, IndexError):
+        _bluez_memo = {}
+        return _bluez_memo
+    # Um `try` por objeto, e não um em volta de tudo: uma propriedade malformada
+    # num objeto qualquer da árvore (um adaptador, uma baliza LE) apagaria todos
+    # os aparelhos Bluetooth de uma vez, em silêncio e sem nova tentativa,
+    # porque o resultado vazio fica memoizado.
+    out = {}
+    for path, ifaces in crus.items():
         try:
-            _bluez_memo = {
-                path: {i: {k: v["data"] for k, v in props.items()}
-                       for i, props in ifaces.items()}
-                for path, ifaces in got["data"][0].items()}
-        except (TypeError, KeyError, IndexError):
-            _bluez_memo = {}
+            out[path] = {i: {k: v["data"] for k, v in props.items()}
+                         for i, props in ifaces.items()}
+        except (TypeError, KeyError, AttributeError) as e:
+            print(f"devices: objeto {path} do BlueZ ignorado ({e})",
+                  file=sys.stderr)
+    _bluez_memo = out
     return _bluez_memo
 
 
@@ -187,27 +218,30 @@ def _achados_de(mod, fonte):
         return []
 
 
-def present(kind=None):
+def present():
     """Tudo que está aqui agora e tem bateria, como lista de `Found`.
 
     Módulos de modelo vêm primeiro e **reservam** o handle deles; depois as
-    fontes genéricas entram com o que sobrou.
+    fontes genéricas entram com o que sobrou. É o que garante que um aparelho
+    visto pelos dois lados apareça uma vez, com o nome e as caps do modelo.
 
-    Hoje nenhum par se sobrepõe — a dedução é rede de segurança, não algo que
-    esteja em uso. O caso que ela cobre é concreto: um aparelho com protocolo de
-    fabricante que também apareça numa fonte genérica. Ela só funciona quando os
-    dois lados falam do mesmo handle; forçar identidade entre barramentos
-    diferentes daria mais erro que acerto.
+    Houve um parâmetro `kind` aqui. Foi removido: ficou sem chamador quando o
+    `pick()` saiu, **e carregava um bug** — o filtro rodava antes do
+    `vistos.add`, então um modelo descartado pela categoria não reservava o
+    handle dele, e a fonte genérica entrava com o mesmo aparelho. Quem precisa
+    filtrar filtra na lista devolvida.
+
+    A dedução só funciona quando os dois lados falam do mesmo handle. Forçar
+    identidade entre barramentos diferentes daria mais erro que acerto.
     """
+    mods = modules()
     out, vistos = [], set()
     for fonte in (False, True):
-        for mod in modules():
+        for mod in mods:
             if bool(getattr(mod, "SOURCE", False)) != fonte:
                 continue
             for ident, name, k, handle in _achados_de(mod, fonte):
                 if not handle or handle in vistos:
-                    continue
-                if kind and k != kind:
                     continue
                 vistos.add(handle)
                 out.append(Found(mod, ident, name, k, handle))
@@ -218,21 +252,29 @@ def check():
     """Valida todo módulo contra o contrato. Chamado pelo selftest — é o que
     diz a quem contribui se o módulo dele está no formato certo."""
     ids = set()
-    for mod in modules():
+    mods = modules()
+    for mod in mods:
         onde = f"devices/{mod.ID}"
         assert isinstance(mod.NAME, str) and mod.NAME, f"{onde}: falta NAME"
+        assert isinstance(getattr(mod, "CAPS", None), tuple) and mod.CAPS, \
+            f"{onde}: falta CAPS"
+        assert "battery" in mod.CAPS, f"{onde}: todo módulo precisa de battery"
         if getattr(mod, "SOURCE", False):
             # fonte genérica: não tem modelo, não tem IDS, e descobre vários
             assert callable(getattr(mod, "discover", None)), \
                 f"{onde}: é SOURCE e precisa de discover()"
             assert callable(getattr(mod, "battery", None)), \
                 f"{onde}: falta battery()"
+            # o kind que ela emite precisa existir: o painel escolhe ícone por
+            # ele, e o selftest do formato do cache o valida contra KINDS
+            for _, _, kind, _ in _achados_de(mod, True):
+                assert kind in KINDS, \
+                    f"{onde}: discover() devolveu kind {kind!r}, fora de {KINDS}"
             continue
         assert mod.KIND in KINDS, f"{onde}: KIND deve ser um de {KINDS}"
         assert mod.IDS and all(isinstance(i, str) for i in mod.IDS), \
             f"{onde}: IDS deve ser uma tupla de identificadores (HID_ID no " \
             f"lado HID, pedaço de Modalias no lado Bluetooth)"
-        assert "battery" in mod.CAPS, f"{onde}: todo modelo precisa de battery"
         for cap in mod.CAPS:
             assert callable(getattr(mod, cap, None)), \
                 f"{onde}: declara {cap!r} em CAPS mas não tem a função"
@@ -243,4 +285,4 @@ def check():
         for i in mod.IDS:
             assert i not in ids, f"{onde}: HID_ID {i} já é de outro modelo"
             ids.add(i)
-    return len(modules())
+    return len(mods)

@@ -80,15 +80,32 @@ O `parse()` exige as três coisas (opcode ecoado + `M802` + 1..100) antes de
 acreditar no byte 18, porque num canal de request/response uma resposta de outro
 opcode tem exatamente o mesmo tamanho e passaria por bateria.
 
-## O seq alterna, e o retry não é paranoia
+## O seq é só ecoado — e a primeira pergunta depois de ociosidade cai
 
-O dispositivo ignora pergunta cujo `seq` não é o que ele espera, e o esperado
-**alterna entre 1 e 2** — em cinco leituras seguidas o eco veio `2,1,2,1,2`. Daí
-o `_handshake()` varrer em vez de assumir 1. Converge em 2 tentativas; o limite
-de 8 é folga.
+**Correção de uma afirmação errada que ficou aqui algumas horas.** Estava escrito
+que o esperado "alterna entre 1 e 2", generalizado de cinco leituras cujo eco veio
+`2,1,2,1,2`. Varrendo depois `seq` de 1 a 6, três rodadas seguidas:
 
-Comando de escrita usa o **seq seguinte** ao que foi aceito, como faz o driver
-de referência.
+```
+rodada: 1-  2+  3+  4+  5+  6+
+rodada: 1+  2+  3+  4+  5+  6+
+rodada: 1+  2+  3+  4+  5+  6+
+```
+
+**Todos são aceitos, e a resposta ecoa o que foi mandado.** Não existe regra de
+sequência. O único `-` é a primeira pergunta da primeira rodada, o que aponta
+para outra coisa: **a primeira pergunta depois de um tempo parado é descartada**,
+provavelmente acordando o link. O `_handshake()` varrer continua certo; o motivo
+é outro.
+
+Isso torna o eco **útil**, e não decorativo: quando a pergunta é descartada, o
+`GET_FEATURE` devolve a resposta **anterior** — que ecoa o opcode, tem o `M802` e
+um percentual plausível. O byte 4 é o único campo que a denuncia como velha, e é
+por isso que o `parse()` recebe o `seq` e o exige.
+
+Comando de escrita usa o **seq seguinte** ao aceito, como faz o driver de
+referência. Como qualquer valor serve, isso é inofensivo — mas o `_send()`
+confere o ACK, então um comando recusado aparece como erro em vez de sucesso.
 
 ## Pegadinha do `kmctl raw` neste modelo
 
@@ -135,6 +152,12 @@ voltou: 0c 01 06 01 03 01 00 00 00 00 …
 Vale para os opcodes de escrita (`0x06`, `0x0b` medidos). Ou seja: dá para saber
 se um comando foi **reconhecido** sem depender de olhar o efeito. Isso não é a
 mesma coisa que o comando ter surtido efeito no mouse — ver a seção seguinte.
+
+O `_send()` **confere as três coisas** (eco do opcode, eco do seq, byte 3 em
+`0x01`) e falha com mensagem se alguma não bater. Ficou algumas horas sem
+conferir: o valor era lido e jogado fora, então todo comando recusado era
+anunciado como sucesso — justamente para `sleep` e `remap`, que nunca rodaram
+contra o hardware e para os quais este ACK é a única evidência que existe.
 
 ## Modo cabo: `5b2e` continua sem teste, e não é por falta de tentar
 

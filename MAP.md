@@ -148,7 +148,7 @@ Entrou junto, e não custou engenharia reversa: o BlueZ publica a bateria em
 Preferimos o BlueZ porque o UPower cacheia — estava 44 min atrasado na medição.
 
 Isso acrescentou a categoria `headset` em `devices.KINDS` e o segundo transporte
-(`find_bluez`). A extensão do painel deixou de ter as categorias no código: agora
+(a fonte `bluez_any`). A extensão do painel deixou de ter as categorias no código: agora
 lê as que o `battlog-status` traz, então um quarto aparelho não pede mexer em JS.
 
 Efeito colateral bem-vindo: **categoria sem aparelho some do painel** em vez de

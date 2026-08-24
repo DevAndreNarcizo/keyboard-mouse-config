@@ -4,6 +4,8 @@ Cobre o que dá para cobrir sem hardware — e é de propósito que o F75 e o AJ
 que não estão na mesa, sejam justamente os mais checados aqui: para eles, isto é
 o único teste que existe.
 """
+import contextlib
+import io
 import pathlib
 import tempfile
 import time
@@ -179,6 +181,67 @@ def pacotes_m800pro():
     return "pacotes do M800 PRO batem com o driver de referencia"
 
 
+def deducao():
+    """Modelo ganha de fonte quando os dois acham o **mesmo handle**.
+
+    Isto nao tem par que dispare hoje: o unico que havia era o diretorio do fone
+    contra o bluez_any, e o diretorio foi removido. A regra fica como rede de
+    seguranca para o caso concreto de um aparelho com protocolo de fabricante que
+    tambem apareca numa fonte generica -- e fica testada, porque maquina sem
+    teste nem usuario e exatamente como se quebra em silencio.
+    """
+    class Modelo:
+        ID, NAME, KIND, CAPS = "modelo_x", "Modelo X", "mouse", ("battery",)
+        SOURCE = False
+        find = staticmethod(lambda: "/dev/mesmo")
+
+    class Fonte:
+        ID, NAME, CAPS = "fonte_x", "Fonte X", ("battery",)
+        SOURCE = True
+        discover = staticmethod(lambda: [
+            ("f_mesmo", "Visto pela fonte", "mouse", "/dev/mesmo"),
+            ("f_outro", "Só a fonte vê", "headset", "/dev/outro"),
+        ])
+
+    real = devices.modules
+    devices.modules = lambda: [Modelo, Fonte]
+    try:
+        got = devices.present()
+    finally:
+        devices.modules = real
+    # o handle repetido sai com o nome e as caps do MODELO, nao da fonte
+    assert [f.ident for f in got] == ["modelo_x", "f_outro"], [f.ident for f in got]
+    assert got[0].name == "Modelo X" and got[0].mod is Modelo
+    assert got[1].mod is Fonte
+
+    # modelo que nao acha nada nao reserva handle nenhum
+    Modelo.find = staticmethod(lambda: None)
+    devices.modules = lambda: [Modelo, Fonte]
+    try:
+        got = devices.present()
+    finally:
+        devices.modules = real
+    assert [f.ident for f in got] == ["f_mesmo", "f_outro"], [f.ident for f in got]
+
+    # modulo que estoura nao derruba os outros (o cron nao pode morrer por isso)
+    class Quebrado:
+        ID, NAME, KIND, CAPS = "quebrado", "Quebrado", "mouse", ("battery",)
+        SOURCE = False
+        find = staticmethod(lambda: 1 / 0)
+
+    devices.modules = lambda: [Quebrado, Fonte]
+    try:
+        # o aviso vai para stderr de proposito; aqui ele e esperado, e deixa-lo
+        # passar sujaria a saida do selftest com um erro que nao e erro
+        with contextlib.redirect_stderr(io.StringIO()) as ruido:
+            got = devices.present()
+    finally:
+        devices.modules = real
+    assert "quebrado" in ruido.getvalue(), "o modulo quebrado devia ter avisado"
+    assert [f.ident for f in got] == ["f_mesmo", "f_outro"], [f.ident for f in got]
+    return "deducao modelo-sobre-fonte ok"
+
+
 def percentual():
     """A regra do que e percentual crivel. Vale para todo modulo e toda fonte.
 
@@ -198,6 +261,23 @@ def percentual():
     frame[18] = 100
     assert delux_m800pro.parse(bytes(frame)).pct == 100
     return "regra de percentual ok, num lugar so"
+
+
+def eco_do_seq():
+    """O byte 4 tem que ecoar o seq mandado, senao a resposta e de outra pergunta.
+
+    E o unico campo que distingue "esta e a resposta" de "isto e o buffer com a
+    resposta anterior": as duas ecoam o opcode e as duas tem o `M802`.
+    """
+    real = bytes.fromhex("0c 01 20 00 05 01 10 00 4d 38 30 32 25 01 00 70 04"
+                         " ff 3a 00")
+    # sem exigir seq, qualquer um passa (e o que o selftest dos parsers usa)
+    assert delux_m800pro.parse(real).pct == 58
+    # exigindo, so o que bate
+    assert delux_m800pro.parse(real, seq=5).pct == 58
+    assert delux_m800pro.parse(real, seq=4) is None, "aceitou resposta anterior"
+    assert delux_m800pro.parse(real, seq=1) is None
+    return "eco do seq exigido no handshake"
 
 
 def fontes_genericas():
@@ -272,13 +352,24 @@ def banco():
     con.execute("DELETE FROM raw WHERE ts < ?", (now - 90 * 86400,))
     assert con.execute("SELECT count(*) FROM raw").fetchone()[0] == 1
 
-    # da ao status_text o que ele precisa para emitir uma linha por aparelho
-    # presente; sem isso, numa maquina sem nada plugado so sairia o `ts`.
-    for f in devices.present():
-        con.execute("INSERT INTO battery VALUES (?,?,?,?)", (now, f.ident, 42, 1))
-    txt = battery.status_text(con).splitlines()
+    # Found fabricado, e nao devices.present(): antes este bloco inteiro era
+    # pulado numa maquina sem hardware -- exatamente a maquina que o selftest
+    # existe para cobrir -- e ainda chamava present() duas vezes, o que um
+    # aparelho entrando no meio fazia falhar.
+    falsos = [
+        devices.Found(None, "mouse_x", "Mouse X", "mouse", "/dev/fake"),
+        # nome hostil: vem do Alias do BlueZ ou do HID_NAME, nao do repo. Um \n
+        # aqui injetaria uma linha `dev` e o painel desenharia aparelho fantasma.
+        devices.Found(None, "bt_1", "Fone\ndev keyboard bt_falso 99 1 Fantasma",
+                      "headset", "/org/bluez/x"),
+        devices.Found(None, "sem_dado", "Sem leitura", "other", "/dev/fake2"),
+    ]
+    con.executemany("INSERT INTO battery VALUES (?,?,?,?)",
+                    [(now, "mouse_x", 42, 1), (now, "bt_1", 90, None)])
+    txt = battery.status_text(con, falsos).splitlines()
     assert txt[0].startswith("ts ") and int(txt[0][3:]) > 1_700_000_000, txt
-    assert len(txt) == 1 + len(devices.present()), txt
+    # 2 linhas: o terceiro Found nao tem leitura no banco e nao entra
+    assert len(txt) == 3, txt
     for linha in txt[1:]:
         campos = linha.split(" ")
         assert campos[0] == "dev", linha
@@ -287,12 +378,14 @@ def banco():
         assert campos[4] in ("0", "1", "-"), linha
         # o nome vem por ultimo justamente porque pode ter espaco
         assert len(campos) >= 6 and campos[5], linha
+    assert txt[1] == f"dev mouse mouse_x 42 1 Mouse X", txt[1]
+    assert txt[2] == "dev headset bt_1 90 - Fone dev keyboard bt_falso 99 1 Fantasma", txt[2]
     return "banco, poda e formato do status ok"
 
 
 def main():
     for f in (contrato, parsers, pacotes_f75, pacotes_m800pro, percentual,
-              fontes_genericas, analise, banco):
+              eco_do_seq, fontes_genericas, deducao, analise, banco):
         print(f"  {f():.<60} ok")
     print("selftest ok")
     return 0
