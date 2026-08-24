@@ -45,19 +45,19 @@ def escolher(args, cap=None):
         sys.exit(f"modelo desconhecido: {args.device!r} — veja `kmctl devices`")
     plugados = devices.present()
     if cap:
-        fazem = [(m, p) for m, p in plugados if cap in m.CAPS]
+        fazem = [f for f in plugados if cap in f.mod.CAPS]
         if len(fazem) == 1:
-            return fazem[0]
+            return fazem[0].mod, fazem[0].handle
         if len(fazem) > 1:
-            quais = ", ".join(m.ID for m, _ in fazem)
-            sys.exit(f"mais de um plugado faz `{cap}` ({quais}) — "
+            quais = ", ".join(f.ident for f in fazem)
+            sys.exit(f"mais de um aqui faz `{cap}` ({quais}) — "
                      "escolha com --device <id>")
         # Ninguém faz: devolve quem sabe *dizer por que não*, para a mensagem de
         # WONT valer mais que um "nenhum plugado" genérico. É o caso do K86, que
         # explica em uma frase por que não há RGB por 2.4G.
-        for mod, path in plugados:
-            if cap in getattr(mod, "WONT", {}):
-                return mod, path
+        for f in plugados:
+            if cap in getattr(f.mod, "WONT", {}):
+                return f.mod, f.handle
     for kind in devices.KINDS:
         mod, path, _ = devices.pick(kind)
         if mod is not None:
@@ -87,33 +87,36 @@ def operar(args, cap, **kw):
 
 
 def cmd_devices(args):
-    recs = battery.recency(battery.db_open())
-    plugados = {m.ID for m, _ in devices.present()}
-    print(f"{'id':18} {'modelo':20} {'tipo':9} {'estado':12} caps")
-    for mod in devices.modules():
-        estado = "plugado" if mod.ID in plugados else "-"
-        caps = ", ".join(mod.CAPS)
-        print(f"{mod.ID:18} {mod.NAME:20} {mod.KIND:9} {estado:12} {caps}")
+    achados = devices.present()
+    print("aqui agora (é o que o painel mostra):")
+    if not achados:
+        print("  nada com bateria")
+    for f in achados:
+        print(f"  {f.ident:22} {f.name:24} {f.kind:9} {f.handle}")
     print()
-    for kind in devices.KINDS:
-        mod, _, motivo = devices.pick(kind, recency=recs)
-        quem = mod.ID if mod else "—"
-        print(f"painel usa como {kind:9}: {quem:18} ({motivo})")
+    print("módulos:")
+    plugados = {f.mod.ID for f in achados}
+    print(f"  {'id':22} {'tipo':7} {'estado':9} {'categoria':10} caps")
+    for mod in devices.modules():
+        fonte = getattr(mod, "SOURCE", False)
+        estado = "ativo" if mod.ID in plugados else "-"
+        print(f"  {mod.ID:22} {'fonte' if fonte else 'modelo':7} {estado:9} "
+              f"{'(vários)' if fonte else mod.KIND:10} {', '.join(mod.CAPS)}")
     return 0
 
 
 def cmd_battery(args):
-    for kind in devices.KINDS:
-        mod, path, _ = devices.pick(kind)
-        if mod is None:
-            print(f"{kind:9} —  (nenhum plugado)")
-            continue
-        r = mod.battery(path, args.wait)
+    achados = devices.present()
+    if not achados:
+        print("nada com bateria aqui")
+        return 0
+    for f in achados:
+        r = f.mod.battery(f.handle, args.wait)
         if r is None:
-            print(f"{kind:9} —  ({mod.NAME} não respondeu em {args.wait:.0f}s)")
+            print(f"{f.kind:9} —  ({f.name} não respondeu em {args.wait:.0f}s)")
             continue
         carga = " carregando" if r.charging else ""
-        print(f"{kind:9} {r.pct}%{carga}  ({mod.NAME})")
+        print(f"{f.kind:9} {r.pct}%{carga}  ({f.name})")
     return 0
 
 

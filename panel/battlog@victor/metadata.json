@@ -1,9 +1,9 @@
 {
   "uuid": "battlog@victor",
   "name": "battlog",
-  "description": "Bateria do teclado, do mouse e do fone Bluetooth no painel. Lê o cache que o `kmctl probe` do cron escreve; não fala com o hardware. Qual modelo aparece em cada categoria é decisão do lado Python (devices.pick), e categoria sem aparelho não aparece.",
+  "description": "Bateria de tudo que está aqui e tem bateria, no painel: um slot por aparelho, com ⚡ quando carregando. Lê o cache que o `kmctl probe` do cron escreve; não fala com o hardware. Aparelho com fio ou sem bateria não aparece, e o widget inteiro some quando não há nada — mas mostra “—” se o cron morrer, porque essa falha precisa ser vista.",
   "shell-version": [
     "46"
   ],
-  "version": 2
+  "version": 3
 }

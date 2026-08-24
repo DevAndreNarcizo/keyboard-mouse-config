@@ -1,11 +1,26 @@
-# devices — um diretório por modelo
+# devices — dois tipos de módulo
 
-Todo o conhecimento de um periférico mora em `devices/<fabricante>_<modelo>/`:
-os IDs USB, como achar a interface certa, como ler a bateria, o que ele sabe
-controlar, o que ele **não** sabe, e o protocolo em Markdown ao lado.
+A descoberta varre esta pasta e não conhece ninguém pelo nome. O que ela acha é
+de um de dois tipos:
 
-Para adicionar o seu: copie o diretório do modelo mais parecido e edite. Não há
-lista para registrar em lugar nenhum — a descoberta varre esta pasta.
+**Módulo de modelo** (`delux_m800pro`, `attackshark_k86`, …). Todo o conhecimento
+de um periférico num diretório: os IDs, como achar a interface certa, como ler a
+bateria, o que ele sabe controlar, o que ele **não** sabe, e o protocolo em
+Markdown ao lado. Declara `IDS` + `find()`, e representa **um** aparelho.
+
+**Módulo de fonte** (`bluez_any`, `power_supply_any`). Não sabe modelo nenhum:
+sabe um barramento, e devolve **quantos aparelhos achar**. Declara `SOURCE = True`
++ `discover()`. É o que faz um teclado sem fio novo aparecer sozinho.
+
+**Antes de escrever um diretório de modelo, ligue o aparelho e rode
+`kmctl devices`.** Se uma fonte genérica já o vê, não escreva nada — o diretório
+só se justifica quando nenhuma vê (bateria por opcode de fabricante, como o
+M800 PRO e o K86, que não aparecem no UPower nem no `power_supply`) ou quando há
+algo a declarar que o barramento não sabe: um `WONT`, ou caps de controle.
+
+Quando as duas coisas veem o mesmo aparelho, o módulo de modelo ganha e o achado
+genérico é suprimido — a dedução é por `handle`, o que funciona no Bluetooth
+porque os dois lados devolvem o mesmo object path.
 
 ## O contrato
 
@@ -24,7 +39,19 @@ O que o `find()` devolve é **opaco**: quem consome só o repassa ao `battery()`
 No lado HID é um `/dev/hidrawN`; no lado Bluetooth, um object path do BlueZ.
 Não presuma que é um arquivo.
 
-`battery` é obrigatório; o resto é opcional e só existe se estiver em `CAPS`.
+Um módulo de **fonte** troca `KIND`/`IDS`/`find()` por:
+
+```python
+SOURCE = True
+def discover() -> [(ident, nome, kind, handle), …]   # quantos achar
+def battery(handle, wait=0) -> Reading | None
+```
+
+O `ident` é a chave estável que vai para o banco e para o cache do painel, e
+precisa ser único entre fontes — daí os prefixos (`bt_`, `ps_`).
+
+`battery` é obrigatório nos dois; o resto é opcional e só existe se estiver em
+`CAPS`.
 As funções de controle recebem `path` e um `dry=False`, e devolvem
 `(mensagem, [pacotes])` — o `dry` faz a operação montar os pacotes sem abrir o
 dispositivo, que é o que permite testar sem ter o hardware:

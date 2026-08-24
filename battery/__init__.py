@@ -36,24 +36,24 @@ def probe(wait=60, keep=KEEP_DAYS, db=DB, echo=print):
     """Lê todos os modelos plugados e grava. Devolve quantos responderam."""
     agora = int(time.time())
     lidos, brutos = [], []
-    for mod, path in devices.present():
+    for f in devices.present():
         try:
-            r = mod.battery(path, wait)
+            r = f.mod.battery(f.handle, wait)
         except PermissionError:
-            echo(f"{mod.ID}: sem permissão em {path} — falta a regra udev "
+            echo(f"{f.ident}: sem permissão em {f.handle} — falta a regra udev "
                  "(udev/*.rules)")
             continue
         except OSError as e:
-            echo(f"{mod.ID}: {path} respondeu erro {e.errno} ({e.strerror})")
+            echo(f"{f.ident}: {f.handle} respondeu erro {e.errno} ({e.strerror})")
             continue
         if r is None:
-            echo(f"{mod.ID}: nada em {path} em {wait:.0f}s")
+            echo(f"{f.ident}: nada em {f.handle} em {wait:.0f}s")
             continue
-        lidos.append((agora, mod.ID, r.pct, r.charging))
+        lidos.append((agora, f.ident, r.pct, r.charging))
         if r.raw:
-            brutos.append((agora, mod.ID, r.raw.hex(" ")))
+            brutos.append((agora, f.ident, r.raw.hex(" ")))
         carga = " (carregando)" if r.charging else ""
-        echo(f"{mod.ID}: {r.pct}%{carga}" +
+        echo(f"{f.ident}: {r.pct}%{carga}" +
              (f"  [{r.raw.hex(' ')}]" if r.raw else ""))
 
     con = db_open(db)
@@ -76,7 +76,18 @@ def recency(con):
 
 
 def status_text(con):
-    """`chave valor` por linha — o que o painel lê. Um modelo por categoria.
+    """O que o painel lê. **Uma linha por aparelho presente**, não por categoria:
+
+        ts 1787588709
+        dev mouse delux_m800pro 100 - Delux M800 PRO
+        dev headset jbl_wave_buds_2 90 - JBL Wave Buds 2
+
+    Campos: `dev <kind> <ident> <pct> <carga>` e o nome legível no fim, que é o
+    único que pode ter espaço. Carga é `0`, `1` ou `-` (desconhecida).
+
+    Era um-aparelho-por-categoria, com o `devices.pick` desempatando. Passou a ser
+    por aparelho porque um fone, um mouse e um teclado sem fio ao mesmo tempo são
+    três coisas para mostrar, não uma escolha a fazer.
 
     O valor vem da última linha do banco, não da rodada atual, de propósito: o
     receptor do mouse só fala com o mouse em uso, e mouse parado não gastou
@@ -85,15 +96,13 @@ def status_text(con):
     relógio e mostra "—" em vez de um número velho.
     """
     linhas = [f"ts {int(time.time())}"]
-    recs = recency(con)
-    for kind in devices.KINDS:
-        mod, _, _ = devices.pick(kind, recency=recs)
-        if mod is None:
+    for f in devices.present():
+        row = con.execute("SELECT pct, charging FROM battery WHERE device = ? "
+                          "ORDER BY ts DESC LIMIT 1", (f.ident,)).fetchone()
+        if not row:
             continue
-        row = con.execute("SELECT pct FROM battery WHERE device = ? "
-                          "ORDER BY ts DESC LIMIT 1", (mod.ID,)).fetchone()
-        if row:
-            linhas.append(f"{kind} {mod.ID} {row[0]}")
+        carga = "-" if row[1] is None else str(int(row[1]))
+        linhas.append(f"dev {f.kind} {f.ident} {row[0]} {carga} {f.name}")
     return "\n".join(linhas) + "\n"
 
 

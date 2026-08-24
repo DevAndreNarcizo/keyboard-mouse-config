@@ -156,6 +156,26 @@ mostrar `—` para sempre. Nesta máquina o ícone de teclado desapareceu, que �
 certo — o Dell é com fio. `—` agora só aparece quando o cron morre, que é
 justamente o caso que precisa ser visível.
 
+### Descoberta automática (2026-08-24)
+
+O painel passou de um slot por **categoria** (no máximo um aparelho de cada) para
+um slot por **aparelho**, e a lista deixou de vir do código. Fone + mouse +
+teclado sem fio ao mesmo tempo são três coisas para mostrar, não uma escolha a
+fazer.
+
+Junto vieram as duas fontes genéricas (`bluez_any`, `power_supply_any`): aparelho
+novo com bateria aparece sozinho, sem diretório. Diretório de modelo agora só se
+justifica para o que nenhuma fonte vê — o M800 PRO e o K86, cuja bateria sai por
+opcode de fabricante.
+
+Com fio ou sem bateria não aparece, e isso **não é regra especial**: o Dell KB216
+e o adaptador TP-Link simplesmente não têm o que reportar. Verificado.
+
+**A caixinha do fone é indetectável.** No cabo ela não enumera em USB, não cria
+`power_supply`, não aparece no UPower nem no BlueZ — puxa 5V e cala. Então dos
+três aparelhos que o André queria ver, o painel faz dois. Não há contorno: o
+número teria que ser inventado.
+
 ## Não ativo
 
 - `checkpoints/01..06` — experimentos de remap de 2026-08-05 (aspas no `` ` ``, dead keys na

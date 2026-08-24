@@ -59,15 +59,35 @@ Um comando só, `./kmctl`, que não conhece modelo nenhum: ele pergunta ao
 ```
 
 O widget do painel (`panel/battlog@victor/`) não fala com hardware: lê o cache
-que o `probe` escreve. Sem cron rodando, ele mostra `—` em vez de um número
-velho.
+que o `probe` escreve. **Um slot por aparelho**, com `⚡` quando carregando, e a
+lista vem do arquivo — aparelho novo não pede mexer em JS.
+
+Três estados, e a diferença entre os dois últimos é de propósito:
+
+- aparelhos presentes → um slot para cada;
+- nada com bateria aqui → **o widget some**. Ausência significando ausência;
+- cron parado (ou cache com mais de 30 min) → um `—`. Aí o problema é o cron, e
+  esconder isso esconderia a falha.
 
 ## Adicionar o seu periférico
 
-Copie o diretório do modelo mais parecido em `devices/`, edite, pronto — não há
-lista para registrar em lugar nenhum. O contrato (o que declarar, o que
-implementar, e como descobrir o byte de bateria de um modelo que ninguém mapeou
-ainda) está em [`devices/README.md`](devices/README.md).
+**Talvez não precise.** Desde 2026-08-24 há duas fontes genéricas que descobrem
+sozinhas: `bluez_any` (qualquer aparelho Bluetooth conectado que reporte bateria)
+e `power_supply_any` (qualquer periférico que o kernel já exponha em
+`/sys/class/power_supply`, o que cobre quem fala a página de bateria padrão do
+HID). Ligue e veja no `./kmctl devices`.
+
+Diretório de modelo só se justifica quando **nenhuma fonte genérica vê o
+aparelho** — é o caso do Delux M800 PRO e do Attack Shark K86, cuja bateria só
+sai por opcode de fabricante e que não aparecem no UPower nem no `power_supply`.
+É essa lacuna que dá razão ao repo existir. O outro motivo válido é ter algo a
+declarar que o barramento não sabe: um `WONT` explicando por que aquele modelo
+não faz RGB, ou caps de controle.
+
+Nesse caso, copie o diretório do modelo mais parecido em `devices/`, edite,
+pronto — não há lista para registrar em lugar nenhum. O contrato (os dois tipos
+de módulo, o que declarar, e como descobrir o byte de bateria de um modelo que
+ninguém mapeou ainda) está em [`devices/README.md`](devices/README.md).
 
 | id | modelo | tipo | o que faz |
 |---|---|---|---|
@@ -77,6 +97,8 @@ ainda) está em [`devices/README.md`](devices/README.md).
 | `freewolf_f75` | FreeWolf F75 | teclado | bateria, luz, cor por tecla, remap, sono |
 | `ajazz_aj139` | AJAZZ AJ139 | mouse | bateria |
 | `jbl_wave_buds_2` | JBL Wave Buds 2 | fone | bateria |
+| `bluez_any` | *(fonte)* qualquer Bluetooth com bateria | — | bateria |
+| `power_supply_any` | *(fonte)* qualquer um em `/sys/class/power_supply` | — | bateria |
 
 O K86 e o M900Pro são o hardware da mesa original; o M800 PRO entrou em
 2026-08-24 noutra máquina; o F75 e o AJ139 saíram em 2026-08-07 e continuam
@@ -105,6 +127,13 @@ Valem para quem chegar aqui pelo Google:
   **12482** frames no canal de movimento e **zero** no canal de status. Sem essa
   testemunha, o silêncio parece mouse parado, e o `GET_FEATURE` solto devolvendo
   zeros parece o dongle morto do K86. Não era nem um nem outro.
+- **Carregar não é o mesmo que ser visível, e não há contorno.** A caixinha do
+  fone JBL, no cabo, não aparece em lugar nenhum: `lsusb` inalterado, zero evento
+  USB, `/sys/class/power_supply` vazio, nada no UPower, nada no BlueZ. Ela puxa
+  5V e não fala com barramento nenhum — igualzinho ao cabo do M800 PRO, que
+  carrega o mouse e também não enumera. Aparelho que não se anuncia não é
+  detectável, e qualquer percentual mostrado para ele seria inventado. Vale
+  saber antes de procurar o bug que não existe.
 - **"Não teve efeito" pode ser o efeito estando invisível.** A primeira escrita
   de cor no M800 PRO pareceu falhar: comando aceito, ACK no protocolo, nada na
   mesa. A explicação pronta era a do K86 logo abaixo — dongle aceita e não

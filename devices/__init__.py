@@ -1,8 +1,19 @@
-"""Descoberta dos modelos suportados e o que eles têm em comum.
+"""Descoberta do que está plugado e tem bateria.
 
-Um diretório por modelo em `devices/`. Este arquivo não conhece nenhum deles:
-varre o diretório, importa o que achar e usa o que o módulo declarar. Adicionar
-um modelo é criar uma pasta — não há lista para editar aqui.
+Dois tipos de módulo moram em `devices/`, e este arquivo não conhece nenhum
+deles pelo nome — varre o diretório e usa o que cada um declarar:
+
+- **modelo** (`delux_m800pro`, `attackshark_k86`, …): sabe falar um protocolo
+  proprietário que mais ninguém no sistema entende. Declara `IDS` e um `find()`.
+  É a razão de o repo existir: o M800 PRO não aparece no UPower nem no
+  `power_supply`, porque a bateria dele só sai por opcode de fabricante.
+- **fonte** (`bluez_any`, `power_supply_any`): não sabe modelo nenhum, sabe um
+  barramento. Declara `discover()` e devolve **quantos aparelhos achar**. É o que
+  faz um teclado sem fio novo aparecer sozinho, sem ninguém escrever um
+  diretório para ele.
+
+Aparelho com fio, ou sem bateria, não aparece em nenhuma das duas — não por
+regra especial, mas porque não tem o que reportar.
 
 O contrato está em `devices/README.md`.
 """
@@ -20,8 +31,18 @@ import sys
 # que é como se descobre o byte de bateria de um modelo novo.
 Reading = collections.namedtuple("Reading", "pct charging raw")
 
+# Um aparelho concreto que está aqui agora. `mod` é quem sabe ler a bateria dele,
+# `handle` é o que o `mod.battery()` precisa (um /dev/hidrawN, um object path do
+# BlueZ, um diretório do sysfs — opaco de propósito), e `ident` é a chave estável
+# que vai para o banco e para o cache do painel.
+Found = collections.namedtuple("Found", "mod ident name kind handle")
+
 CONFIG = os.path.expanduser("~/.config/keyboard-mouse.conf")
-KINDS = ("keyboard", "mouse", "headset")
+# Vocabulário de categorias. Serve para escolher ícone no painel e para o
+# `--device`/config desempatarem; não é uma taxonomia com pretensão. "other" é o
+# destino honesto de qualquer coisa que uma fonte genérica ache e não saiba
+# classificar — melhor que forçar num rótulo errado.
+KINDS = ("keyboard", "mouse", "headset", "phone", "gamepad", "other")
 
 
 def find_iface(ids, writable=False, at_start=False):
@@ -162,14 +183,37 @@ def modules():
 
 
 def present(kind=None):
-    """Os modelos que estão plugados agora, com o /dev/hidrawN de cada um."""
-    out = []
-    for mod in modules():
-        if kind and mod.KIND != kind:
-            continue
-        path = mod.find()
-        if path:
-            out.append((mod, path))
+    """Tudo que está aqui agora e tem bateria, como lista de `Found`.
+
+    Módulos de modelo vêm primeiro e **reservam** o handle deles; depois as
+    fontes genéricas entram com o que sobrou. É o que evita o fone aparecer
+    duas vezes — uma pelo diretório do modelo, outra pelo `bluez_any`, já que os
+    dois devolvem o mesmo object path do BlueZ.
+
+    A dedução só funciona quando os dois lados falam do mesmo handle, o que é o
+    caso do Bluetooth. Um aparelho visto por protocolo de fabricante (handle
+    `/dev/hidrawN`) e ao mesmo tempo pelo `power_supply` (handle no sysfs) não
+    seria pego — não há caso desses hoje, e forçar uma identidade entre
+    barramentos diferentes daria mais erro que acerto.
+    """
+    out, vistos = [], set()
+    for fonte in (False, True):
+        for mod in modules():
+            if bool(getattr(mod, "SOURCE", False)) != fonte:
+                continue
+            try:
+                achados = (list(mod.discover()) if fonte else
+                           [(mod.ID, mod.NAME, mod.KIND, mod.find())])
+            except Exception as e:  # noqa: BLE001 - fonte de terceiro não derruba o resto
+                print(f"devices: {mod.ID}.discover() falhou ({e})", file=sys.stderr)
+                continue
+            for ident, name, k, handle in achados:
+                if not handle or handle in vistos:
+                    continue
+                if kind and k != kind:
+                    continue
+                vistos.add(handle)
+                out.append(Found(mod, ident, name, k, handle))
     return out
 
 
@@ -200,16 +244,16 @@ def pick(kind, recency=None):
     if not cands:
         return None, None, "nenhum plugado"
     if len(cands) == 1:
-        return cands[0][0], cands[0][1], "único plugado"
+        return cands[0].mod, cands[0].handle, "único plugado"
     escolhido = config().get(kind)
-    for mod, path in cands:
-        if mod.ID == escolhido:
-            return mod, path, f"escolhido em {CONFIG}"
+    for f in cands:
+        if f.ident == escolhido:
+            return f.mod, f.handle, f"escolhido em {CONFIG}"
     if recency:
-        mod, path = max(cands, key=lambda c: recency.get(c[0].ID, 0))
-        return mod, path, "reportou mais recentemente (empate sem config)"
-    mod, path = cands[0]
-    return mod, path, "primeiro da ordem (empate sem config)"
+        f = max(cands, key=lambda c: recency.get(c.ident, 0))
+        return f.mod, f.handle, "reportou mais recentemente (empate sem config)"
+    f = cands[0]
+    return f.mod, f.handle, "primeiro da ordem (empate sem config)"
 
 
 def check():
@@ -219,6 +263,13 @@ def check():
     for mod in modules():
         onde = f"devices/{mod.ID}"
         assert isinstance(mod.NAME, str) and mod.NAME, f"{onde}: falta NAME"
+        if getattr(mod, "SOURCE", False):
+            # fonte genérica: não tem modelo, não tem IDS, e descobre vários
+            assert callable(getattr(mod, "discover", None)), \
+                f"{onde}: é SOURCE e precisa de discover()"
+            assert callable(getattr(mod, "battery", None)), \
+                f"{onde}: falta battery()"
+            continue
         assert mod.KIND in KINDS, f"{onde}: KIND deve ser um de {KINDS}"
         assert mod.IDS and all(isinstance(i, str) for i in mod.IDS), \
             f"{onde}: IDS deve ser uma tupla de identificadores (HID_ID no " \

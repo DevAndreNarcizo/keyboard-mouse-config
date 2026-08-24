@@ -4,19 +4,24 @@ Cobre o que dá para cobrir sem hardware — e é de propósito que o F75 e o AJ
 que não estão na mesa, sejam justamente os mais checados aqui: para eles, isto é
 o único teste que existe.
 """
+import pathlib
 import sqlite3
+import tempfile
 import time
 
 import battery
 import devices
-from devices import (ajazz_aj139, attackshark_k86, delux_m800pro,
-                     delux_m900pro, freewolf_f75, jbl_wave_buds_2)
+from devices import (ajazz_aj139, attackshark_k86, bluez_any, delux_m800pro,
+                     delux_m900pro, freewolf_f75, jbl_wave_buds_2,
+                     power_supply_any)
 
 
 def contrato():
     n = devices.check()
-    assert n >= 6, f"esperava ao menos os 6 modelos de casa, achei {n}"
-    return f"contrato ok em {n} modelos"
+    assert n >= 8, f"esperava ao menos 6 modelos + 2 fontes, achei {n}"
+    fontes = [m.ID for m in devices.modules() if getattr(m, "SOURCE", False)]
+    assert len(fontes) >= 2, f"esperava as fontes genericas, achei {fontes}"
+    return f"contrato ok em {n} modulos ({len(fontes)} fontes)"
 
 
 def parsers():
@@ -206,6 +211,53 @@ def bluetooth():
     return "matcher do Bluetooth ok"
 
 
+def fontes_genericas():
+    """As duas fontes de descoberta automatica, sem hardware.
+
+    E o que faz um aparelho novo aparecer sozinho, entao um erro aqui nao da
+    sintoma obvio: simplesmente nada aparece no painel.
+    """
+    # --- bluez_any: funcao pura sobre o dicionario do BlueZ ---
+    def bt(icone="audio-headset", conectado=True, bateria=True):
+        d = {"org.bluez.Device1": {"Connected": conectado, "Address": "AA:BB:CC",
+                                   "Alias": "Fone X", "Icon": icone}}
+        if bateria:
+            d["org.bluez.Battery1"] = {"Percentage": 77}
+        return {"/org/bluez/hci0/dev_AA": d}
+
+    got = bluez_any.achados(bt())
+    assert got == [("bt_aabbcc", "Fone X", "headset", "/org/bluez/hci0/dev_AA")], got
+    assert bluez_any.achados(bt(conectado=False)) == []
+    assert bluez_any.achados(bt(bateria=False)) == []
+    assert bluez_any.achados(bt(icone="input-mouse"))[0][2] == "mouse"
+    assert bluez_any.achados(bt(icone="input-keyboard"))[0][2] == "keyboard"
+    # icone que nao conhecemos vira "other", nao um palpite
+    assert bluez_any.achados(bt(icone="coisa-nova"))[0][2] == "other"
+    for _, _, kind, _ in bluez_any.achados(bt()):
+        assert kind in devices.KINDS, kind
+
+    # --- power_supply_any: le sysfs, entao testa contra um sysfs de mentira ---
+    assert power_supply_any.kind_de("Logitech K380 Keyboard") == "keyboard"
+    assert power_supply_any.kind_de("algum treco") == "other"
+    with tempfile.TemporaryDirectory() as d:
+        def escreve(**campos):
+            for k, v in campos.items():
+                (pathlib.Path(d) / k).write_text(v + "\n")
+        escreve(capacity="55", status="Discharging", scope="Device", type="Battery")
+        r = power_supply_any.battery(d)
+        assert (r.pct, r.charging, r.raw) == (55, 0, b""), r
+        escreve(status="Charging")
+        assert power_supply_any.battery(d).charging == 1
+        # sem status o kernel nao disse nada: None, nao "descarregando"
+        escreve(status="")
+        assert power_supply_any.battery(d).charging is None
+        escreve(capacity="0")
+        assert power_supply_any.battery(d) is None, "0% e leitura invalida aqui"
+        escreve(capacity="nao-numero")
+        assert power_supply_any.battery(d) is None
+    return "fontes genericas ok"
+
+
 def analise():
     def s(*seqs):
         return [(i, bytes(b)) for i, b in enumerate(seqs)]
@@ -233,18 +285,27 @@ def banco():
         (1, "delux_m900pro", 70, None)])
     assert battery.recency(con) == {"attackshark_k86": 2, "delux_m900pro": 1}
 
+    # da ao status_text o que ele precisa para emitir uma linha por aparelho
+    # presente; sem isso, numa maquina sem nada plugado so sairia o `ts`.
+    for f in devices.present():
+        con.execute("INSERT INTO battery VALUES (?,?,?,?)", (now, f.ident, 42, 1))
     txt = battery.status_text(con).splitlines()
     assert txt[0].startswith("ts ") and int(txt[0][3:]) > 1_700_000_000, txt
-    # o resto depende do que está plugado agora; o formato é que importa
+    assert len(txt) == 1 + len(devices.present()), txt
     for linha in txt[1:]:
-        kind, ident, pct = linha.split()
-        assert kind in devices.KINDS and pct.isdigit(), linha
+        campos = linha.split(" ")
+        assert campos[0] == "dev", linha
+        assert campos[1] in devices.KINDS, linha
+        assert campos[3].isdigit(), linha
+        assert campos[4] in ("0", "1", "-"), linha
+        # o nome vem por ultimo justamente porque pode ter espaco
+        assert len(campos) >= 6 and campos[5], linha
     return "banco, poda e formato do status ok"
 
 
 def main():
     for f in (contrato, parsers, pacotes_f75, pacotes_m800pro, bluetooth,
-              analise, banco):
+              fontes_genericas, analise, banco):
         print(f"  {f():.<60} ok")
     print("selftest ok")
     return 0
