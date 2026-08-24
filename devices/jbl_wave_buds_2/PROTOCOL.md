@@ -26,6 +26,32 @@ valor corrente.
 produto, **sem** o `d001F`, que é release de device e muda com revisão de
 firmware. É o análogo exato do `VID:PID` do lado HID.
 
+## É o fone, não a caixinha
+
+Primeira pergunta que se faz sobre bateria de TWS, e a estrutura responde sem
+precisar de experimento:
+
+- O `Battery1` pendura no objeto **do device Bluetooth**
+  (`dev_50_1B_6A_0C_F9_73`), que é o endpoint de rádio, ou seja os fones.
+- **A caixinha não tem endereço Bluetooth.** Medido: o BlueZ conhece exatamente
+  um aparelho nesta máquina, e é o par de fones. A caixinha não aparece em nenhum
+  objeto D-Bus. O cabo alimenta ela, mas quem reporta bateria é quem tem rádio.
+- Existe **uma única** interface `Battery1` — não há entrada separada para
+  esquerdo, direito ou case.
+
+Confirmação empírica, se quiser: com os fones em uso o número tem que **cair**.
+Se estivesse lendo a caixinha no carregador, subiria.
+
+## O que não se sabe: qual dos dois fones
+
+O BlueZ expõe **um** percentual, e o `Battery1` desta versão (BlueZ 5.72) só tem
+`Percentage` — a propriedade `Source`, que diria se o número veio de HFP, AVRCP
+ou GATT, não existe aqui. Então não há como saber se 90% é o fone esquerdo, o
+direito, ou o menor dos dois.
+
+Não tem conserto do nosso lado: quem agrega os dois num número é o firmware do
+fone, antes de mandar. Fica registrado para ninguém tentar "melhorar" isso.
+
 ## O que o BlueZ não dá
 
 - **Nada de carga.** `org.bluez.Battery1` só tem `Percentage`. O fone sabe se
