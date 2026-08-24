@@ -20,7 +20,7 @@ import fcntl
 import os
 import time
 
-from .. import Reading, find_iface
+from .. import Reading, find_iface, pct_ok
 
 NAME = "Delux M800 PRO"
 KIND = "mouse"
@@ -144,7 +144,7 @@ def parse(frame):
         return None
     if frame[8:12] != MODEL:
         return None
-    if not 1 <= frame[18] <= 100:
+    if not pct_ok(frame[18]):
         return None
     return Reading(frame[18], CARGA.get(frame[19]), bytes(frame))
 

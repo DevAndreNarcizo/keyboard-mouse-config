@@ -30,40 +30,45 @@ import devices  # noqa: E402
 
 
 def escolher(args, cap=None):
-    """(módulo, path) do modelo a operar. Erra com mensagem útil.
+    """(módulo, handle) do que operar. Erra com mensagem útil.
 
-    Quem opera é quem está plugado **e declara a cap**, de qualquer categoria.
-    Isso mudou quando entrou o M800 PRO: antes o despacho de controle era fixo em
-    `kind="keyboard"`, porque no começo só o teclado tinha o que controlar e os
-    dois mouses eram battery-only. Um mouse que faz `rgb`/`sleep`/`remap` era
-    inalcançável pela CLI.
+    `--device` aceita **o que o `kmctl devices` mostra** — o ident. Aceita também
+    o id do módulo, que é o que permite `--dry-run` contra hardware ausente. Os
+    dois vocabulários coincidiam por acidente enquanto todo aparelho vinha de um
+    diretório de modelo; com fontes genéricas o ident é `bt_...` e só o primeiro
+    caminho funciona.
+
+    Sem `--device`, opera quem está aqui **e declara a cap**, de qualquer
+    categoria. Antes o despacho era fixo em teclado, porque no começo só o
+    teclado tinha o que controlar.
     """
+    achados = devices.present()
     if args.device:
+        for f in achados:
+            if args.device in (f.ident, f.mod.ID):
+                return f.mod, f.handle
         for mod in devices.modules():
             if mod.ID == args.device:
-                return mod, mod.find()
-        sys.exit(f"modelo desconhecido: {args.device!r} — veja `kmctl devices`")
-    plugados = devices.present()
+                return mod, None  # ausente: serve para --dry-run
+        sys.exit(f"não conheço {args.device!r} — veja `kmctl devices`")
     if cap:
-        fazem = [f for f in plugados if cap in f.mod.CAPS]
+        fazem = [f for f in achados if cap in f.mod.CAPS]
         if len(fazem) == 1:
             return fazem[0].mod, fazem[0].handle
         if len(fazem) > 1:
             quais = ", ".join(f.ident for f in fazem)
             sys.exit(f"mais de um aqui faz `{cap}` ({quais}) — "
-                     "escolha com --device <id>")
+                     "escolha com --device <ident>")
         # Ninguém faz: devolve quem sabe *dizer por que não*, para a mensagem de
         # WONT valer mais que um "nenhum plugado" genérico. É o caso do K86, que
         # explica em uma frase por que não há RGB por 2.4G.
-        for f in plugados:
+        for f in achados:
             if cap in getattr(f.mod, "WONT", {}):
                 return f.mod, f.handle
-    for kind in devices.KINDS:
-        mod, path, _ = devices.pick(kind)
-        if mod is not None:
-            return mod, path
-    sys.exit("nenhum periférico suportado plugado. Use --device <id> para "
-             "operar em modo --dry-run mesmo sem o hardware.")
+    if achados:
+        return achados[0].mod, achados[0].handle
+    sys.exit("nada com bateria aqui. Use --device <id> para operar em modo "
+             "--dry-run mesmo sem o hardware.")
 
 
 def operar(args, cap, **kw):
@@ -88,7 +93,7 @@ def operar(args, cap, **kw):
 
 def cmd_devices(args):
     achados = devices.present()
-    print("aqui agora (é o que o painel mostra):")
+    print("aqui agora (é o que o painel mostra; o ident vai em --device):")
     if not achados:
         print("  nada com bateria")
     for f in achados:
@@ -107,6 +112,11 @@ def cmd_devices(args):
 
 def cmd_battery(args):
     achados = devices.present()
+    if args.device:
+        achados = [f for f in achados
+                   if args.device in (f.ident, f.mod.ID)]
+        if not achados:
+            sys.exit(f"{args.device!r} não está aqui — veja `kmctl devices`")
     if not achados:
         print("nada com bateria aqui")
         return 0
@@ -134,7 +144,9 @@ def main():
     ap = argparse.ArgumentParser(
         description=__doc__.splitlines()[0],
         formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
-    ap.add_argument("--device", help="opera num modelo específico (id do devices/)")
+    ap.add_argument("--device", help="opera num aparelho específico: o ident do "
+                                    "`kmctl devices`, ou o id de um módulo para "
+                                    "--dry-run sem hardware")
     ap.add_argument("--dry-run", action="store_true",
                     help="monta os pacotes e mostra, sem abrir o dispositivo")
     ap.add_argument("-v", "--verbose", action="store_true", help="mostra os pacotes")

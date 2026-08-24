@@ -49,11 +49,16 @@ Três decisões que valem o comentário:
   não gastou bateria: repetir o último número é mais verdadeiro que apagá-lo.
 - **`ts` mais velho que 30 min vira `—`.** É o cron que morreu, e um número
   velho no painel engana justamente por parecer atual.
-- **Quem escolhe o modelo é o Python, não a extensão.** Um plugado por categoria
-  resolve sozinho; empate vai para `~/.config/keyboard-mouse.conf`
-  (`keyboard = attackshark_k86`), e sem config vence quem reportou por último —
-  assim trocar de hardware ajusta sozinho. `kmctl devices` mostra a decisão e o
-  motivo dela.
+- **Quem descobre os aparelhos é o Python, não a extensão.** O cache traz uma
+  linha por aparelho presente e a extensão desenha o que vier; ela não escolhe
+  nada. `kmctl devices` mostra a mesma lista.
+
+  Houve um mecanismo de desempate aqui — um aparelho por categoria, com
+  `~/.config/keyboard-mouse.conf` decidindo empate e, sem config, vencendo quem
+  reportou por último. **Foi removido em 2026-08-24 junto com o `pick()` e o
+  `recency()`.** Ele existia porque o painel só cabia um de cada; mostrando
+  todos, não há empate a desfazer. Configuração que não decide mais nada é pior
+  que nenhuma, porque continua parecendo que decide.
 
 O Astra Monitor não serve de casa para isso: a versão 42 não tem sensor por
 comando (o `sensors-source` dele só lê `hwmon`), então seria preciso um driver

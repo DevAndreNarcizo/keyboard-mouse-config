@@ -37,12 +37,25 @@ Reading = collections.namedtuple("Reading", "pct charging raw")
 # que vai para o banco e para o cache do painel.
 Found = collections.namedtuple("Found", "mod ident name kind handle")
 
-CONFIG = os.path.expanduser("~/.config/keyboard-mouse.conf")
 # Vocabulário de categorias. Serve para escolher ícone no painel e para o
 # `--device`/config desempatarem; não é uma taxonomia com pretensão. "other" é o
 # destino honesto de qualquer coisa que uma fonte genérica ache e não saiba
 # classificar — melhor que forçar num rótulo errado.
 KINDS = ("keyboard", "mouse", "headset", "phone", "gamepad", "other")
+
+
+def pct_ok(v):
+    """Percentual crível: 1..100.
+
+    Uma regra num lugar. Estava copiada em seis parsers, e o lado Bluetooth
+    tinha divergido para `0..100` — o que fazia `bluez_pct` aceitar 0 e os
+    chamadores dele descartarem, cada um com a sua ideia.
+
+    **Zero fica de fora de propósito.** Em todo aparelho visto aqui, 0 é o valor
+    que aparece quando o canal não sabe responder, não uma bateria realmente
+    zerada — aparelho com 0% de verdade está desligado e não reporta nada.
+    """
+    return isinstance(v, int) and 1 <= v <= 100
 
 
 def find_iface(ids, writable=False, at_start=False):
@@ -89,7 +102,7 @@ def find_iface(ids, writable=False, at_start=False):
 # ela não existir, ou o bluetoothd estiver parado, tudo aqui devolve vazio e o
 # resto do repo segue funcionando.
 
-_BLUEZ_CACHE = []  # memo por processo; o kmctl é one-shot, então não envelhece
+_bluez_memo = None
 
 
 def _busctl(*args):
@@ -106,62 +119,37 @@ def _busctl(*args):
         return None
 
 
-def bluez_objects(refresh=False):
-    """{path: {interface: {prop: valor}}} de tudo que o BlueZ conhece. {} se
-    não der para falar com ele."""
-    if _BLUEZ_CACHE and not refresh:
-        return _BLUEZ_CACHE[0]
-    got = _busctl("call", "org.bluez", "/",
-                  "org.freedesktop.DBus.ObjectManager", "GetManagedObjects")
-    out = {}
-    try:
-        for path, ifaces in got["data"][0].items():
-            out[path] = {i: {k: v["data"] for k, v in props.items()}
-                         for i, props in ifaces.items()}
-    except (TypeError, KeyError, IndexError):
-        out = {}
-    _BLUEZ_CACHE[:] = [out]
-    return out
+def bluez_objects():
+    """{path: {interface: {prop: valor}}} de tudo que o BlueZ conhece. {} se não
+    der para falar com ele.
 
-
-def bluez_match(objects, ids):
-    """path do aparelho **conectado** cujo Modalias casa com `ids`, e que
-    reporta bateria. None se não estiver conectado.
-
-    `ids` são pedaços de Modalias, ex: `"v0ECBp2100"` para
-    `bluetooth:v0ECBp2100d001F` — vendor e produto, sem o `d` de device
-    release, que muda com revisão de firmware.
-
-    Separada de `find_bluez` de propósito: é função pura, então o selftest a
-    testa sem precisar de Bluetooth ligado.
+    Memoizado por processo. O `kmctl` é one-shot, então não envelhece; num
+    processo longo envelheceria, e é por isso que quem lê **percentual** usa
+    `bluez_pct`, que sempre vai ao barramento.
     """
-    for path in sorted(objects):
-        dev = objects[path].get("org.bluez.Device1")
-        if not dev or not dev.get("Connected"):
-            continue
-        modalias = dev.get("Modalias", "")
-        if not any(i in modalias for i in ids):
-            continue
-        if "org.bluez.Battery1" not in objects[path]:
-            continue
-        return path
-    return None
-
-
-def find_bluez(ids):
-    """path do BlueZ desse aparelho, se estiver conectado agora."""
-    return bluez_match(bluez_objects(), ids)
+    global _bluez_memo
+    if _bluez_memo is None:
+        got = _busctl("call", "org.bluez", "/",
+                      "org.freedesktop.DBus.ObjectManager", "GetManagedObjects")
+        try:
+            _bluez_memo = {
+                path: {i: {k: v["data"] for k, v in props.items()}
+                       for i, props in ifaces.items()}
+                for path, ifaces in got["data"][0].items()}
+        except (TypeError, KeyError, IndexError):
+            _bluez_memo = {}
+    return _bluez_memo
 
 
 def bluez_pct(path):
-    """Percentual que o BlueZ reporta, ou None."""
+    """Percentual que o BlueZ reporta agora, ou None. Não usa o memo."""
     got = _busctl("get-property", "org.bluez", path,
                   "org.bluez.Battery1", "Percentage")
     try:
         pct = int(got["data"])
     except (TypeError, KeyError, ValueError):
         return None
-    return pct if 0 <= pct <= 100 else None
+    return pct if pct_ok(pct) else None
 
 
 def modules():
@@ -182,32 +170,41 @@ def modules():
     return out
 
 
+def _achados_de(mod, fonte):
+    """O que este módulo diz que está aqui, como [(ident, nome, kind, handle)].
+
+    Erro de um módulo não derruba os outros: o `probe` do cron não pode morrer
+    porque o diretório de outra pessoa estourou.
+    """
+    qual = "discover()" if fonte else "find()"
+    try:
+        if fonte:
+            return list(mod.discover())
+        handle = mod.find()
+        return [(mod.ID, mod.NAME, mod.KIND, handle)] if handle else []
+    except Exception as e:  # noqa: BLE001 - módulo de terceiro, qualquer coisa
+        print(f"devices: {mod.ID}.{qual} falhou ({e})", file=sys.stderr)
+        return []
+
+
 def present(kind=None):
     """Tudo que está aqui agora e tem bateria, como lista de `Found`.
 
     Módulos de modelo vêm primeiro e **reservam** o handle deles; depois as
-    fontes genéricas entram com o que sobrou. É o que evita o fone aparecer
-    duas vezes — uma pelo diretório do modelo, outra pelo `bluez_any`, já que os
-    dois devolvem o mesmo object path do BlueZ.
+    fontes genéricas entram com o que sobrou.
 
-    A dedução só funciona quando os dois lados falam do mesmo handle, o que é o
-    caso do Bluetooth. Um aparelho visto por protocolo de fabricante (handle
-    `/dev/hidrawN`) e ao mesmo tempo pelo `power_supply` (handle no sysfs) não
-    seria pego — não há caso desses hoje, e forçar uma identidade entre
-    barramentos diferentes daria mais erro que acerto.
+    Hoje nenhum par se sobrepõe — a dedução é rede de segurança, não algo que
+    esteja em uso. O caso que ela cobre é concreto: um aparelho com protocolo de
+    fabricante que também apareça numa fonte genérica. Ela só funciona quando os
+    dois lados falam do mesmo handle; forçar identidade entre barramentos
+    diferentes daria mais erro que acerto.
     """
     out, vistos = [], set()
     for fonte in (False, True):
         for mod in modules():
             if bool(getattr(mod, "SOURCE", False)) != fonte:
                 continue
-            try:
-                achados = (list(mod.discover()) if fonte else
-                           [(mod.ID, mod.NAME, mod.KIND, mod.find())])
-            except Exception as e:  # noqa: BLE001 - fonte de terceiro não derruba o resto
-                print(f"devices: {mod.ID}.discover() falhou ({e})", file=sys.stderr)
-                continue
-            for ident, name, k, handle in achados:
+            for ident, name, k, handle in _achados_de(mod, fonte):
                 if not handle or handle in vistos:
                     continue
                 if kind and k != kind:
@@ -215,45 +212,6 @@ def present(kind=None):
                 vistos.add(handle)
                 out.append(Found(mod, ident, name, k, handle))
     return out
-
-
-def config():
-    """`chave = valor` de ~/.config/keyboard-mouse.conf. {} se não existir."""
-    try:
-        with open(CONFIG) as f:
-            linhas = f.read().splitlines()
-    except OSError:
-        return {}
-    out = {}
-    for linha in linhas:
-        linha = linha.split("#", 1)[0]
-        if "=" in linha:
-            k, v = linha.split("=", 1)
-            out[k.strip()] = v.strip()
-    return out
-
-
-def pick(kind, recency=None):
-    """O modelo daquele tipo que o painel deve mostrar: (mod, path, motivo).
-
-    Um só plugado resolve o caso de todo dia sem configurar nada. Empate cai no
-    ~/.config/keyboard-mouse.conf; sem config, vence quem reportou por último —
-    assim trocar de hardware ajusta sozinho, sem editar arquivo.
-    """
-    cands = present(kind)
-    if not cands:
-        return None, None, "nenhum plugado"
-    if len(cands) == 1:
-        return cands[0].mod, cands[0].handle, "único plugado"
-    escolhido = config().get(kind)
-    for f in cands:
-        if f.ident == escolhido:
-            return f.mod, f.handle, f"escolhido em {CONFIG}"
-    if recency:
-        f = max(cands, key=lambda c: recency.get(c.ident, 0))
-        return f.mod, f.handle, "reportou mais recentemente (empate sem config)"
-    f = cands[0]
-    return f.mod, f.handle, "primeiro da ordem (empate sem config)"
 
 
 def check():

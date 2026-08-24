@@ -69,12 +69,6 @@ def probe(wait=60, keep=KEEP_DAYS, db=DB, echo=print):
     return len(lidos)
 
 
-def recency(con):
-    """id do modelo -> ts da última leitura. Desempata quem o painel mostra."""
-    return {name: ts for name, ts in con.execute(
-        "SELECT device, max(ts) FROM battery GROUP BY device")}
-
-
 def status_text(con):
     """O que o painel lê. **Uma linha por aparelho presente**, não por categoria:
 

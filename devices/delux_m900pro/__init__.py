@@ -7,7 +7,7 @@ import os
 import select
 import time
 
-from .. import Reading, find_iface
+from .. import Reading, find_iface, pct_ok
 
 NAME = "Delux M900Pro"
 KIND = "mouse"
@@ -46,6 +46,6 @@ def parse(frame):
     confirmou o do teclado. O frame inteiro continua no banco, então trocar o
     offset depois não custa histórico.
     """
-    if len(frame) < 5 or not 1 <= frame[4] <= 100:
+    if len(frame) < 5 or not pct_ok(frame[4]):
         return None
     return Reading(frame[4], None, frame)

@@ -10,7 +10,7 @@ import os
 import select
 import time
 
-from .. import Reading, find_iface
+from .. import Reading, find_iface, pct_ok
 
 NAME = "AJAZZ AJ139"
 KIND = "mouse"
@@ -47,7 +47,7 @@ def parse(pkt):
     """
     if len(pkt) < 11 or pkt[0] != 0xAA or pkt[1] != 0xFA:
         return None
-    if pkt[8] != 0xD0 or not 1 <= pkt[9] <= 100:
+    if pkt[8] != 0xD0 or not pct_ok(pkt[9]):
         return None
     if sum(pkt[4:64]) & 0xFF != pkt[3]:
         return None

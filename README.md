@@ -96,7 +96,6 @@ ninguém mapeou ainda) está em [`devices/README.md`](devices/README.md).
 | `delux_m900pro` | Delux M900Pro | mouse | bateria |
 | `freewolf_f75` | FreeWolf F75 | teclado | bateria, luz, cor por tecla, remap, sono |
 | `ajazz_aj139` | AJAZZ AJ139 | mouse | bateria |
-| `jbl_wave_buds_2` | JBL Wave Buds 2 | fone | bateria |
 | `bluez_any` | *(fonte)* qualquer Bluetooth com bateria | — | bateria |
 | `power_supply_any` | *(fonte)* qualquer um em `/sys/class/power_supply` | — | bateria |
 
@@ -104,11 +103,15 @@ O K86 e o M900Pro são o hardware da mesa original; o M800 PRO entrou em
 2026-08-24 noutra máquina; o F75 e o AJ139 saíram em 2026-08-07 e continuam
 suportados.
 
-O JBL entrou em 2026-08-24 e é o primeiro aparelho **não-HID**: quem lê a
-bateria dele é o BlueZ, não este repo. Isso acrescentou uma categoria
-(`headset`, ao lado de `keyboard` e `mouse`) e um segundo transporte —
-`find_bluez` ao lado do `find_iface`. O diretório do modelo guarda só o
-`Modalias`, que é o análogo Bluetooth do VID:PID; não há byte para descobrir.
+As duas **fontes** entraram em 2026-08-24, junto com o primeiro aparelho não-HID
+(um fone Bluetooth): quem lê a bateria dele é o BlueZ, não este repo. Isso
+acrescentou a categoria `headset` e um segundo transporte.
+
+O fone chegou a ter um diretório de modelo, e ele **foi removido no mesmo dia**:
+lia o mesmo aparelho pelo mesmo caminho que a fonte genérica, e manter os dois
+obrigou a inventar dedução só para ele não aparecer duas vezes. Máquina para
+reconciliar duas cópias da mesma coisa é o sinal de que uma das cópias não
+devia existir.
 
 O M800 PRO foi o primeiro **mouse** com caps de controle, e isso obrigou a
 mudar o despacho do `kmctl`: `kmctl rgb`/`sleep`/`key` escolhiam sempre um

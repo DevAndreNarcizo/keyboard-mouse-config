@@ -1,20 +1,35 @@
 """Qualquer aparelho Bluetooth conectado que reporte bateria.
 
-Fonte genérica, não modelo: não há `IDS` aqui, e é o ponto — um fone, teclado ou
-mouse Bluetooth novo aparece sozinho, sem ninguém escrever um diretório. Quem
-decodifica é o BlueZ.
+Fonte genérica, não modelo: não há `IDS` aqui, e é o ponto — um fone, teclado,
+mouse ou controle Bluetooth novo aparece sozinho, sem ninguém escrever um
+diretório. Quem decodifica é o BlueZ.
 
-Um diretório de modelo só se justifica ao lado desta fonte quando há algo a
-declarar que o BlueZ não sabe: um `WONT` explicando por que aquele aparelho não
-faz RGB, por exemplo. Quando existir esse diretório, o `present()` dá preferência
-a ele e suprime o achado genérico — os dois devolvem o mesmo object path.
+Houve um `devices/jbl_wave_buds_2/` por umas horas em 2026-08-24, e ele foi
+**removido**: lia o mesmo aparelho pelo mesmo caminho que este módulo, e existir
+junto obrigou a inventar dedução em `present()` para o fone não aparecer duas
+vezes. O que ele tinha de próprio era um `WONT`, e o `WONT` é mais verdadeiro
+aqui — "o BlueZ só expõe bateria" vale para todo aparelho Bluetooth, não para um
+modelo. Regra que ficou: **diretório de modelo só quando nenhuma fonte vê o
+aparelho, ou quando há caps de controle a declarar.**
+
+O que se sabe do transporte está no `PROTOCOL.md` ao lado.
 """
-from .. import bluez_objects, bluez_pct, Reading
 import time
+
+from .. import Reading, bluez_objects, bluez_pct
 
 NAME = "Bluetooth (via BlueZ)"
 SOURCE = True
 CAPS = ("battery",)
+WONT = {
+    "light": "o BlueZ não expõe luz de aparelho Bluetooth — só bateria. Não é "
+             "limitação daqui: não há interface D-Bus para isso",
+    "rgb": "o D-Bus do BlueZ não tem cor: nenhuma interface dele fala de LED",
+    "remap": "botão e toque são resolvidos no firmware do aparelho, antes de "
+             "virar evento Bluetooth; nada disso chega ao BlueZ",
+    "sleep": "quem decide dormir é o firmware do aparelho; não há como pedir "
+             "por D-Bus",
+}
 
 # O `Icon` que o BlueZ publica é a melhor dica de categoria que existe de graça.
 ICONE_KIND = {
@@ -31,12 +46,18 @@ ICONE_KIND = {
 
 
 def kind_de(icone):
+    """Categoria a partir do `Icon` do BlueZ. Desconhecido vira `other` — um
+    ícone de bateria genérico é melhor que um ícone errado."""
     return ICONE_KIND.get(icone, "other")
 
 
 def achados(objects):
-    """Função pura sobre o dicionário do BlueZ, para o selftest não precisar de
-    Bluetooth ligado."""
+    """[(ident, nome, kind, path)] dos conectados que reportam bateria.
+
+    Função pura sobre o dicionário do BlueZ, para o selftest rodar sem Bluetooth
+    ligado. Exige `Connected` **e** `Battery1`: um aparelho pareado e desligado
+    continua existindo no BlueZ, e listá-lo daria um slot sem número.
+    """
     out = []
     for path in sorted(objects):
         dev = objects[path].get("org.bluez.Device1")
@@ -45,8 +66,8 @@ def achados(objects):
         if "org.bluez.Battery1" not in objects[path]:
             continue
         addr = dev.get("Address", "")
-        ident = "bt_" + addr.replace(":", "").lower()
         nome = dev.get("Alias") or dev.get("Name") or addr or "Bluetooth"
+        ident = "bt_" + addr.replace(":", "").lower()
         out.append((ident, nome, kind_de(dev.get("Icon", "")), path))
     return out
 
@@ -56,10 +77,20 @@ def discover():
 
 
 def battery(path, wait=0):
+    """Percentual do BlueZ. `wait` cobre o intervalo entre o aparelho conectar e
+    o `Battery1` aparecer, que não é instantâneo.
+
+    `charging` é sempre None: `org.bluez.Battery1` só tem `Percentage`. Muitos
+    aparelhos sabem que estão carregando e não contam ao BlueZ — inventar isso
+    seria pior que omitir.
+
+    `raw` é vazio porque não existe frame: o número já vem decodificado. É a
+    diferença em relação aos modelos HID, cujo frame cru alimenta o `kmctl raw`.
+    """
     end = time.time() + max(wait, 0)
     while True:
         pct = bluez_pct(path)
-        if pct:
+        if pct is not None:
             return Reading(pct, None, b"")
         if time.time() >= end:
             return None

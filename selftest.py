@@ -5,20 +5,18 @@ que não estão na mesa, sejam justamente os mais checados aqui: para eles, isto
 o único teste que existe.
 """
 import pathlib
-import sqlite3
 import tempfile
 import time
 
 import battery
 import devices
 from devices import (ajazz_aj139, attackshark_k86, bluez_any, delux_m800pro,
-                     delux_m900pro, freewolf_f75, jbl_wave_buds_2,
-                     power_supply_any)
+                     delux_m900pro, freewolf_f75, power_supply_any)
 
 
 def contrato():
     n = devices.check()
-    assert n >= 8, f"esperava ao menos 6 modelos + 2 fontes, achei {n}"
+    assert n >= 7, f"esperava ao menos 5 modelos + 2 fontes, achei {n}"
     fontes = [m.ID for m in devices.modules() if getattr(m, "SOURCE", False)]
     assert len(fontes) >= 2, f"esperava as fontes genericas, achei {fontes}"
     return f"contrato ok em {n} modulos ({len(fontes)} fontes)"
@@ -181,34 +179,25 @@ def pacotes_m800pro():
     return "pacotes do M800 PRO batem com o driver de referencia"
 
 
-def bluetooth():
-    """O matcher do lado Bluetooth, sem precisar de Bluetooth ligado.
+def percentual():
+    """A regra do que e percentual crivel. Vale para todo modulo e toda fonte.
 
-    `bluez_match` e separada de `find_bluez` justamente para isto: e funcao
-    pura sobre o dicionario que o BlueZ devolve.
+    Estava copiada em seis parsers, e o lado Bluetooth tinha divergido para
+    aceitar 0. Um teste so agora que a regra e uma so.
     """
-    def obj(connected=True, modalias="bluetooth:v0ECBp2100d001F", bateria=True):
-        d = {"org.bluez.Device1": {"Connected": connected, "Modalias": modalias}}
-        if bateria:
-            d["org.bluez.Battery1"] = {"Percentage": 90}
-        return {"/org/bluez/hci0/dev_X": d}
-
-    ids = jbl_wave_buds_2.IDS
-    assert devices.bluez_match(obj(), ids) == "/org/bluez/hci0/dev_X"
-    # pareado mas desconectado nao conta: continua no BlueZ e sem bateria
-    assert devices.bluez_match(obj(connected=False), ids) is None
-    # conectado sem Battery1 tambem nao: mostraria "plugado" sem numero
-    assert devices.bluez_match(obj(bateria=False), ids) is None
-    # outro aparelho conectado nao vira este modelo
-    assert devices.bluez_match(obj(modalias="bluetooth:v1234p5678d0001"),
-                               ids) is None
-    # o `d` do modalias e release de firmware: mudar ele NAO deve quebrar o match
-    assert devices.bluez_match(obj(modalias="bluetooth:v0ECBp2100d9999"),
-                               ids) == "/org/bluez/hci0/dev_X"
-    assert devices.bluez_match({}, ids) is None
-    # sem falar com o BlueZ, tudo devolve vazio em vez de estourar
-    assert devices.bluez_objects.__doc__ and devices._busctl("nao-existe") is None
-    return "matcher do Bluetooth ok"
+    assert devices.pct_ok(1) and devices.pct_ok(100)
+    # 0 fica de fora: e o valor que canal sem resposta devolve, nao bateria zerada
+    assert not devices.pct_ok(0)
+    assert not devices.pct_ok(101) and not devices.pct_ok(-1)
+    assert not devices.pct_ok(None) and not devices.pct_ok("50")
+    # e o mesmo criterio chega nos parsers
+    frame = bytearray(bytes.fromhex(
+        "0c 01 20 00 01 01 10 00 4d 38 30 32 25 01 00 70 04 ff 3a 00"))
+    frame[18] = 0
+    assert delux_m800pro.parse(bytes(frame)) is None
+    frame[18] = 100
+    assert delux_m800pro.parse(bytes(frame)).pct == 100
+    return "regra de percentual ok, num lugar so"
 
 
 def fontes_genericas():
@@ -218,9 +207,9 @@ def fontes_genericas():
     sintoma obvio: simplesmente nada aparece no painel.
     """
     # --- bluez_any: funcao pura sobre o dicionario do BlueZ ---
-    def bt(icone="audio-headset", conectado=True, bateria=True):
+    def bt(icone="audio-headset", conectado=True, bateria=True, alias="Fone X"):
         d = {"org.bluez.Device1": {"Connected": conectado, "Address": "AA:BB:CC",
-                                   "Alias": "Fone X", "Icon": icone}}
+                                   "Alias": alias, "Icon": icone}}
         if bateria:
             d["org.bluez.Battery1"] = {"Percentage": 77}
         return {"/org/bluez/hci0/dev_AA": d}
@@ -233,6 +222,9 @@ def fontes_genericas():
     assert bluez_any.achados(bt(icone="input-keyboard"))[0][2] == "keyboard"
     # icone que nao conhecemos vira "other", nao um palpite
     assert bluez_any.achados(bt(icone="coisa-nova"))[0][2] == "other"
+    # o nome vem do Alias do BlueZ, que acompanha renomeacao — nao de codigo
+    assert bluez_any.achados(bt(alias="Outro Nome"))[0][1] == "Outro Nome"
+    assert bluez_any.achados({}) == []
     for _, _, kind, _ in bluez_any.achados(bt()):
         assert kind in devices.KINDS, kind
 
@@ -280,11 +272,6 @@ def banco():
     con.execute("DELETE FROM raw WHERE ts < ?", (now - 90 * 86400,))
     assert con.execute("SELECT count(*) FROM raw").fetchone()[0] == 1
 
-    con.executemany("INSERT INTO battery VALUES (?,?,?,?)", [
-        (1, "attackshark_k86", 50, None), (2, "attackshark_k86", 49, None),
-        (1, "delux_m900pro", 70, None)])
-    assert battery.recency(con) == {"attackshark_k86": 2, "delux_m900pro": 1}
-
     # da ao status_text o que ele precisa para emitir uma linha por aparelho
     # presente; sem isso, numa maquina sem nada plugado so sairia o `ts`.
     for f in devices.present():
@@ -304,7 +291,7 @@ def banco():
 
 
 def main():
-    for f in (contrato, parsers, pacotes_f75, pacotes_m800pro, bluetooth,
+    for f in (contrato, parsers, pacotes_f75, pacotes_m800pro, percentual,
               fontes_genericas, analise, banco):
         print(f"  {f():.<60} ok")
     print("selftest ok")

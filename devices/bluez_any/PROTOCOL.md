@@ -1,9 +1,11 @@
-# JBL Wave Buds 2 — não há protocolo aqui
+# Bluetooth — não há protocolo aqui
 
 Este arquivo existe para dizer que **não houve engenharia reversa**, e por quê.
+Vale para qualquer aparelho Bluetooth, não para um modelo: foi levantado com um
+JBL Wave Buds 2 na mesa, e é por isso que os exemplos são dele.
 
-O fone reporta bateria pelo próprio Bluetooth (AVRCP/HFP), o BlueZ decodifica e
-publica em D-Bus:
+O aparelho reporta bateria pelo próprio Bluetooth (AVRCP/HFP), o BlueZ decodifica
+e publica em D-Bus:
 
 ```
 org.bluez  /org/bluez/hci0/dev_50_1B_6A_0C_F9_73  org.bluez.Battery1  Percentage
@@ -20,11 +22,17 @@ Preferimos o BlueZ ao UPower porque o UPower **cacheia**: no momento do teste el
 dizia `updated: 2669 seconds ago`, ou seja 44 min de atraso. O BlueZ responde o
 valor corrente.
 
-## Identificação
+## Identificação: `Address`, não `Modalias`
 
-`Modalias = bluetooth:v0ECBp2100d001F`. O `IDS` guarda `v0ECBp2100` — vendor e
-produto, **sem** o `d001F`, que é release de device e muda com revisão de
-firmware. É o análogo exato do `VID:PID` do lado HID.
+O `ident` é `bt_` + o endereço sem os dois-pontos (`bt_501b6a0cf973`), e o nome
+vem do `Alias` do BlueZ — que acompanha renomeação, ao contrário de um nome
+fixado em código.
+
+Houve uma versão que casava por `Modalias` (`bluetooth:v0ECBp2100d001F`, sem o
+`d` de release), para um diretório de modelo. Não é mais necessário: uma fonte
+genérica não precisa **reconhecer** o aparelho, só listá-lo. Se um dia voltar a
+existir um diretório de modelo para algum aparelho Bluetooth — por ter caps de
+controle —, é o `Modalias` sem o `d` que serve, porque o `d` muda com firmware.
 
 ## É o fone, não a caixinha
 
@@ -58,7 +66,9 @@ fone, antes de mandar. Fica registrado para ninguém tentar "melhorar" isso.
   está no case carregando; não conta. Por isso `Reading.charging` é sempre `None`
   em vez de um palpite.
 - **Nada de controle.** Luz, toque, EQ: nada disso aparece em D-Bus. Está tudo em
-  `WONT`, para o `kmctl` responder com a frase em vez de uma falha feia.
+  `WONT`, para o `kmctl` responder com a frase em vez de uma falha feia. E o
+  `WONT` mora aqui, no transporte, porque a frase vale para todo aparelho
+  Bluetooth — não é característica de um modelo.
 - **Nada de frame cru.** `Reading.raw` é `b""`, porque o número já vem
   decodificado. Ou seja este modelo não aparece no `kmctl raw` — e não faz
   sentido que apareça, já que não há byte para descobrir.

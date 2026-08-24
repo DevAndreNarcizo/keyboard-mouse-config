@@ -10,7 +10,7 @@ import fcntl
 import os
 import time
 
-from .. import Reading, find_iface
+from .. import Reading, find_iface, pct_ok
 
 NAME = "Attack Shark K86"
 KIND = "keyboard"
@@ -76,6 +76,6 @@ def parse(frame):
     o dongle enumerar. Bateria 0 de verdade não chega aqui: teclado sem carga
     não reporta nada.
     """
-    if len(frame) < 8 or not 1 <= frame[1] <= 100:
+    if len(frame) < 8 or not pct_ok(frame[1]):
         return None
     return Reading(frame[1], None, frame)

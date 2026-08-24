@@ -116,7 +116,6 @@ que o próprio aparelho mostra.
 | `delux_m900pro` | Delux M900Pro | mouse | bateria |
 | `freewolf_f75` | FreeWolf F75 | teclado | bateria, luz, cor, remap, sono |
 | `ajazz_aj139` | AJAZZ AJ139 | mouse | bateria |
-| `jbl_wave_buds_2` | JBL Wave Buds 2 | fone | bateria |
 
 O F75 e o AJ139 saíram da mesa em 2026-08-07 e não têm como ser testados ao
 vivo aqui — o que dá para verificar sem eles está no `selftest`, em asserts de
@@ -128,18 +127,25 @@ contra o hardware; `sleep` e `remap` estão no mesmo regime de assert.
 - **HID** (`find_iface`): quatro dos modelos. `IDS` são `HID_ID` como aparecem
   no uevent do hidraw. O trabalho de decodificar o frame é nosso, e é onde mora
   a engenharia reversa.
-- **Bluetooth** (`find_bluez`): o BlueZ já publica a bateria normalizada em
-  `org.bluez.Battery1`, então `IDS` são pedaços de `Modalias`
-  (`v0ECBp2100` de `bluetooth:v0ECBp2100d001F` — vendor e produto, sem o `d` de
-  release, que muda com firmware). Não há frame, e `Reading.raw` fica `b""`.
+- **Bluetooth** (`bluez_any`): o BlueZ já publica a bateria normalizada em
+  `org.bluez.Battery1`, então **não há diretório de modelo nenhum** deste lado —
+  a fonte lista o que está conectado e pronto. Não há frame, e `Reading.raw` fica
+  `b""`.
 
-A divisão é a mesma nos dois: **o pacote sabe o transporte, o diretório sabe
-qual aparelho é.** Um segundo fone é um diretório de 20 linhas com um `Modalias`
-diferente, porque não há conhecimento de modelo para guardar.
+Houve um `devices/jbl_wave_buds_2/` por algumas horas em 2026-08-24, casando por
+`Modalias`. **Foi removido**, e a lição vale mais que ele: uma fonte genérica não
+precisa *reconhecer* o aparelho, só listá-lo. O diretório lia o mesmo fone pelo
+mesmo caminho que o `bluez_any`, e manter os dois obrigou a inventar dedução em
+`present()` só para o fone não aparecer duas vezes. O nome ficou até melhor sem
+ele: vem do `Alias` do BlueZ, que acompanha renomeação, em vez de fixado em código.
+
+Se algum dia um aparelho Bluetooth merecer diretório — por ter caps de controle —,
+é o `Modalias` sem o `d` de release que serve como identificador, porque o `d`
+muda com firmware.
 
 Falar D-Bus em stdlib puro não é razoável, então o lado Bluetooth chama o
 `busctl` — que vem com o systemd, não é pacote Python. Sem ele, ou com o
-bluetoothd parado, `find_bluez` devolve `None` e o resto do repo não se abala.
+bluetoothd parado, a fonte devolve lista vazia e o resto do repo não se abala.
 
 ## Dois jeitos de ler bateria, e como saber qual é o seu
 

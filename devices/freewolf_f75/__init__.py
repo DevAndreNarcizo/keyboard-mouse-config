@@ -18,7 +18,7 @@ import os
 import select
 import time
 
-from .. import Reading, find_iface
+from .. import Reading, find_iface, pct_ok
 
 NAME = "FreeWolf F75"
 KIND = "keyboard"
@@ -157,7 +157,7 @@ def battery(path, wait=0):
     with _Wire(path, dry=False) as w:
         w.send(build(CMD_STATUS))
         r = w.recv(max(wait, 2.0), CMD_STATUS)
-    if not r or not 1 <= r[5] <= 100:
+    if not r or not pct_ok(r[5]):
         return None
     return Reading(r[5], None, bytes(r[:16]))
 

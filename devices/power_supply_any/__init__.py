@@ -10,9 +10,8 @@ seria ruído. Carregador (`type=Mains`/`USB`) também sai — é fonte, não bat
 """
 import glob
 import os
-import time
 
-from .. import Reading
+from .. import Reading, pct_ok
 
 NAME = "Kernel (power_supply)"
 SOURCE = True
@@ -65,12 +64,14 @@ def discover():
 
 
 def battery(base, wait=0):
-    """`capacity` e `status` do sysfs. Aqui `wait` não serve para nada: o valor
-    está sempre lá, sem handshake nem anúncio — mas o contrato passa, então
-    aceita e ignora."""
-    del wait
+    """`capacity` e `status` do sysfs.
+
+    `wait` é ignorado, e não por descuido: aqui o valor está sempre no arquivo,
+    sem handshake nem anúncio para esperar. O parâmetro existe porque o contrato
+    o passa a todo módulo.
+    """
     cap = _ler(base, "capacity")
-    if not cap.isdigit() or not 1 <= int(cap) <= 100:
+    if not cap.isdigit() or not pct_ok(int(cap)):
         return None
     status = _ler(base, "status")
     carga = 1 if status == "Charging" else (0 if status else None)
