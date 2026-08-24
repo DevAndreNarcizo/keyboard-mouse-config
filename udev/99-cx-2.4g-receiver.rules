@@ -1,0 +1,6 @@
+# Receptor generico "CX 2.4G Wireless Receiver" (3554:fa09) — acesso hidraw
+# sem root. Visto nesta maquina em 2026-08-24, sem modulo de modelo no repo.
+# A regra existe so para a permissao estar pronta: sem ela o `kmctl scan` nem
+# consegue tentar a sonda de familia, e todo aparelho deste VID sai como
+# "nao expoe bateria" sem que se saiba se e verdade ou falta de permissao.
+KERNEL=="hidraw*", ATTRS{idVendor}=="3554", ATTRS{idProduct}=="fa09", MODE="0660", GROUP="plugdev", TAG+="uaccess"

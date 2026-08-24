@@ -36,8 +36,8 @@ reação a Bluetooth passa a depender do timer de 20 s em vez de ser instantâne
 ```bash
 git clone <este-repo> keyboard-mouse-config
 cd keyboard-mouse-config
-git checkout setup-em-casa
-./kmctl selftest          # 12 checagens, nenhuma precisa de hardware
+git checkout develop
+./kmctl selftest          # 15 checagens, nenhuma precisa de hardware
 ```
 
 ### ⚠️ O `install.sh` faz DUAS coisas independentes

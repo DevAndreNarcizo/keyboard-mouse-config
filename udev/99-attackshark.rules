@@ -28,3 +28,7 @@ KERNEL=="hidraw*", ATTRS{idVendor}=="373e", ATTRS{idProduct}=="0046", MODE="0660
 KERNEL=="hidraw*", ATTRS{idVendor}=="1d57", ATTRS{idProduct}=="fa60", MODE="0660", GROUP="plugdev", TAG+="uaccess"
 KERNEL=="hidraw*", ATTRS{idVendor}=="1d57", ATTRS{idProduct}=="fa55", MODE="0660", GROUP="plugdev", TAG+="uaccess"
 KERNEL=="hidraw*", ATTRS{idVendor}=="1d57", ATTRS{idProduct}=="fa61", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+
+# X11 tambem enumera como "Beken USB Gaming Mouse" (1d57:fa61) — confirmado
+# nesta maquina em 2026-08-24. A regra acima ja o cobre; fica a nota porque
+# procurar "Attack Shark" no lsusb nao acha nada, igual ao caso do Delux.

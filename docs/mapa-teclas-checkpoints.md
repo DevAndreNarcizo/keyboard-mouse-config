@@ -2,7 +2,7 @@
 
 Estado completo da variante `~/.config/xkb/symbols/victor` no checkpoint `06-swap-ac10-ac11`, o
 último antes do reset pro `baseline`. Detalhe passo a passo de cada ajuste (o que mudou, por quê, o
-que foi sacrificado) em `checkpoints/LOG.md`.
+que foi sacrificado) em `docs/checkpoints-log.md`.
 
 ## Mapa de teclas (checkpoint 06)
 
@@ -41,4 +41,4 @@ AltGr acima são o símbolo solto, sem composição.
 ## Depois deste relatório
 
 Resetado para o checkpoint `baseline` (`./restore.sh baseline`) — os 6 ajustes acima ficam só como
-histórico neste relatório e em `checkpoints/LOG.md`; não estão mais ativos no teclado.
+histórico neste relatório e em `docs/checkpoints-log.md`; não estão mais ativos no teclado.

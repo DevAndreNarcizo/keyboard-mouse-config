@@ -2,7 +2,7 @@
 
 Estado vivo em 2026-08-07. O que cada camada tem de customizado e onde mora.
 Histórico e justificativas: `~/Documents/notas/ubuntu/teclado-abnt2-para-75-pct.md`,
-`checkpoints/LOG.md`, `battery/README.md` e `devices/*/PROTOCOL.md`.
+`docs/checkpoints-log.md`, `battery/README.md` e `devices/*/PROTOCOL.md`.
 
 **Trocou o hardware em 2026-08-07.** Saíram o teclado FreeWolf F75 (`1a2c:8fff`) e o
 mouse AJAZZ AJ139 (`a8a5:2255`); entraram o **Attack Shark K86** (dongle ROYUAN
@@ -70,7 +70,7 @@ só reescreveria o sharkfin para funcionar em menos casos.
 ## 6. Cron — battlog
 
 ```
-*/10 * * * * /var/www/victor/keyboards/keyboard-mouse-config/kmctl probe --wait 90
+*/10 * * * * /caminho/para/keyboard-mouse-config/kmctl probe --wait 90
 ```
 
 **Os dois resolvidos em 2026-08-08.** Teclado: byte 1 do frame de status do dongle. Mouse:
@@ -199,12 +199,69 @@ D-Bus competindo com o `devices.present()`.
 bateria de vez em quando pelo próprio rádio, e o mouse muda 1% a cada muitos
 minutos. Ler mais vezes não cria informação que ninguém mandou.
 
+## 10. Máquina `calecos` (2026-08-24) — GNOME 50.1 em Wayland
+
+**Terceira máquina, e a que mais foge do que as seções acima descrevem.** Nada do
+hardware documentado neste repo está aqui.
+
+| o que | esta máquina | o que o repo assumia |
+|---|---|---|
+| sessão | **Wayland** | X11 |
+| GNOME Shell | **50.1** | 46 |
+| teclado + mouse | receptor combo `3554:fa09` ("CX 2.4G Wireless Receiver") | K86 `3151:4011` |
+| mouse | **Attack Shark** `1d57:fa61` (enumera "Beken USB Gaming Mouse") | Delux M800 PRO `248a:5b2f` |
+| fone | HyperX Cloud III Wireless `03f0:0c9d` | JBL Wave Buds 2, por Bluetooth |
+
+Consequências, cada uma medida aqui — menos onde estiver dito que não:
+
+- **`Alt+F2` → `r` não existe em Wayland.** Reiniciar o shell é deslogar e logar
+  de novo. Todo lugar deste repo que manda usar `Alt+F2 r` vale só para X11.
+- **A extensão declarava só a `46`** e por isso o shell nem a varreria. Passou a
+  declarar `46`–`50`. **A compatibilidade está inferida do fonte, não verificada:**
+  o código já é ESM (`gi://`, `export default class ... extends Extension`), que é o
+  formato de 45+, e não usa nada removido no caminho — em particular não passa
+  `vertical` ao `St.BoxLayout`, que é o que quebra extensão antiga na 48+. Provar
+  exige carregar o shell, e em Wayland isso só acontece deslogando. Depois do
+  próximo login, quem confirma é:
+
+      gnome-extensions info battlog@victor
+      journalctl --user -b | grep -i battlog
+- **Bluetooth desligado** (`systemctl is-active bluetooth` → `inactive`): o
+  caminho `bluez_any` está morto aqui até ligar o serviço. Não é bug do repo.
+- **Nenhum `power_supply`, nenhum device no UPower além do `DisplayDevice`.**
+  Nenhum dos três aparelhos declara bateria na página HID, então o caminho
+  `power_supply_any` também não pega nada.
+- **Sobra o caminho 3 (sonda de família), e ele precisa de permissão em hidraw.**
+  Sem as regras udev instaladas, todo `/dev/hidraw*` fica `0600 root` e o
+  `kmctl scan` responde "não expõe bateria por caminho nenhum" para todos os três
+  — resposta que não distingue "não tem bateria" de "não pude olhar". Por isso a
+  regra do `3554:fa09` foi acrescentada em `udev/99-cx-2.4g-receiver.rules`.
+- **Quem é quem, por `bInterfaceProtocol`** (1 = teclado, 2 = mouse), já que o
+  nome do USB não diz: o `3554:fa09` expõe as duas — `input16` "…Receiver
+  Keyboard" e `input17` "…Receiver Mouse" —, então é um receptor de *kit*, um
+  dongle para os dois aparelhos. O `1d57:fa61` também declara interface de
+  teclado, mas todos os seus `input*` se chamam "Beken USB Gaming Mouse": é o
+  mouse, com o canal de teclado que mouse de jogo usa para macro.
+- **Só a metade da bateria está instalada, e ela mesma está pela metade.**
+  Extensão do painel e `battlog.service` ativos — o caminho do dado foi verificado
+  ponta a ponta: o serviço escreve `~/.cache/battlog-status` e o `kmctl status` o
+  lê. **As regras udev continuam pendentes**, porque `/etc/udev/rules.d/` pede
+  sudo com senha: nenhuma regra deste repo está instalada nesta máquina.
+- **A camada XKB não foi aplicada** (`victor(quotefix)`, `~/.XCompose`, os
+  `gsettings` de input-sources): o layout aqui é `us+intl`, e o `~/.XCompose`
+  desta máquina já tem conteúdo próprio — três linhas, com as sequências do `ç` —
+  que o `install.sh` sobrescreveria sem avisar. Aplicar a metade do teclado é
+  decisão à parte, e não tem relação nenhuma com a bateria.
+
 ## Não ativo
 
-- `checkpoints/01..06` — experimentos de remap de 2026-08-05 (aspas no `` ` ``, dead keys na
-  home row etc.), **revertidos pro `baseline`**. `./checkpoints/restore.sh <nome>` volta
-  qualquer um. **Cuidado:** o `baseline` é anterior ao ajuste de 2026-08-06 (Shift+`'` ainda
-  era `"` direto, sem `dead_circumflex`) — restaurá-lo desfaz esse ajuste silenciosamente.
+- `checkpoints/01..06` — experimentos de remap de 2026-08-05 (aspas no `` ` ``, dead keys
+  na home row etc.), **revertidos pro `baseline`**. **Os scripts não estão neste repo**:
+  sobrou o relatório do que cada um fez, em `docs/checkpoints-log.md` e
+  `docs/mapa-teclas-checkpoints.md`. Não há `checkpoints/restore.sh` para rodar — quem
+  quiser um deles de volta reconstrói a partir do relatório. **Cuidado ao fazer isso:** o
+  `baseline` é anterior ao ajuste de 2026-08-06 (Shift+`'` ainda era `"` direto, sem
+  `dead_circumflex`) — voltar a ele desfaz esse ajuste silenciosamente.
 - **FreeWolf F75** e **AJAZZ AJ139** — hardware fora da mesa desde 2026-08-07, mas
   suportados: `devices/freewolf_f75/` (bateria, luz, cor por tecla, remap, sono) e
   `devices/ajazz_aj139/` (bateria). Sem como testar ao vivo aqui — o que dá para
