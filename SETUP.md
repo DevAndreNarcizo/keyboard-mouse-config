@@ -89,9 +89,18 @@ exatamente o estado de uma máquina nova. E um `sed` que acrescenta na lista
 duplicaria a entrada se você rodar o passo duas vezes. É a mesma lógica que o
 `install.sh` usa.
 
-O passo 4 é obrigatório e não tem atalho: o GNOME varre a pasta de extensões
-**uma vez, na inicialização**. Sem reiniciar o shell, a extensão não existe para
-ele — `gnome-extensions info battlog@victor` diz `doesn't exist` e é normal.
+O passo 4 **depende da sua versão do GNOME**, e o que este guia dizia só vale até
+a 46: lá o shell varre a pasta de extensões uma vez, na inicialização, e sem
+reiniciar `gnome-extensions info battlog@victor` diz `doesn't exist` — normal.
+
+Na **50.1 isso mudou** (medido): o shell monitora a pasta e pega a extensão no
+instante em que o symlink aparece, sem reiniciar nada. Confira antes de deslogar:
+
+    gnome-extensions info battlog@victor     # State: ACTIVE já basta
+
+E se precisar mesmo reiniciar o shell, **`Alt+F2` → `r` é de X11**. Em Wayland o
+shell é o próprio compositor e não pode se reiniciar; o diálogo responde
+`command not found`. Ali a única forma é deslogar e logar.
 
 ## 3. Validar, camada por camada
 

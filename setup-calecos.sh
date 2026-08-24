@@ -116,12 +116,15 @@ cat <<'EOF'
 
 pronto.
 
-A extensão do painel só existe para o shell depois que ele reiniciar, e nesta
-máquina **isso quer dizer deslogar e logar** — `Alt+F2` → `r` é de X11 e não
-existe em Wayland. Depois do próximo login, quem confirma que ela subiu:
+A extensão do painel sobe sozinha: na 50.1 o shell monitora a pasta e a pega no
+instante em que o symlink aparece. Confira:
 
-  gnome-extensions info battlog@victor
-  journalctl --user -b | grep -i battlog
+  gnome-extensions info battlog@victor     # State: ACTIVE
+  journalctl --user -b | grep -i battlog   # deve sair vazio
+
+Se um dia precisar mesmo reiniciar o shell, saiba que `Alt+F2` → `r` **é de X11**
+e aqui responde `command not found`: em Wayland o shell é o compositor, e a única
+forma é deslogar e logar.
 
 Se o painel mostrar "—", o problema não é o painel: é que ninguém escreveu o
 cache nos últimos 30 min. Olhe o serviço:

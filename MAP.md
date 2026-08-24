@@ -216,16 +216,35 @@ Consequências, cada uma medida aqui — menos onde estiver dito que não:
 
 - **`Alt+F2` → `r` não existe em Wayland.** Reiniciar o shell é deslogar e logar
   de novo. Todo lugar deste repo que manda usar `Alt+F2 r` vale só para X11.
-- **A extensão declarava só a `46`** e por isso o shell nem a varreria. Passou a
-  declarar `46`–`50`. **A compatibilidade está inferida do fonte, não verificada:**
-  o código já é ESM (`gi://`, `export default class ... extends Extension`), que é o
-  formato de 45+, e não usa nada removido no caminho — em particular não passa
-  `vertical` ao `St.BoxLayout`, que é o que quebra extensão antiga na 48+. Provar
-  exige carregar o shell, e em Wayland isso só acontece deslogando. Depois do
-  próximo login, quem confirma é:
+- **A extensão declarava só a `46`** e por isso o shell a recusaria. Passou a
+  declarar `46`–`50`, e **funciona: `State: ACTIVE` na 50.1, zero erro de JS no
+  journal.** Verificado, não deduzido. O código já era ESM (`gi://`,
+  `export default class ... extends Extension`), o formato de 45+, e não usa nada
+  removido no caminho — em particular não passa `vertical` ao `St.BoxLayout`, que
+  é o que quebra extensão antiga na 48+.
 
-      gnome-extensions info battlog@victor
+      gnome-extensions info battlog@victor      # State: ACTIVE
       journalctl --user -b | grep -i battlog
+
+- **`Alt+F2` → `r` não era só inútil aqui: era desnecessário.** Duas correções ao
+  que este repo dizia, as duas medidas na 50.1:
+  1. o atalho **não existe em Wayland** — o shell é o compositor e não pode se
+     reiniciar sem derrubar a sessão. O diálogo trata o `r` como um programa
+     qualquer e responde `command not found`;
+  2. e **não faz falta**: a afirmação de que "o GNOME varre a pasta de extensões
+     uma vez, na inicialização" **não vale na 50.1**. Ele monitora a pasta, e
+     pegou a extensão no instante em que o `setup-calecos.sh` criou o symlink —
+     sem deslogar. Na 46 era verdade; em algum ponto do caminho deixou de ser.
+
+- **O trecho que desenha aparelho foi exercitado**, já que nenhum hardware daqui
+  alimenta o painel: com o serviço parado, duas linhas `dev` sintéticas no cache e
+  depois um redesenho (2 slots → 1, com percentual e flag de carga diferentes).
+  Zero erro de JS, `State` seguiu `ACTIVE`, e o falso **não** entrou no sqlite — o
+  `watch` só grava o que ele mesmo leu. O serviço apagou o enxerto em 5 s.
+
+- **`kmctl status` não é só leitura — ele reescreve o cache** (`kmctl:280`). Isso
+  importa em dois momentos: rodá-lo com o serviço parado é o que *conserta* um
+  cache velho, e rodá-lo no meio de um teste como o de cima apaga o teste.
 - **Bluetooth desligado** (`systemctl is-active bluetooth` → `inactive`): o
   caminho `bluez_any` está morto aqui até ligar o serviço. Não é bug do repo.
 - **Nenhum `power_supply`, nenhum device no UPower além do `DisplayDevice`.**
@@ -254,9 +273,9 @@ Quem monta esta máquina é **`setup-calecos.sh`**, não o `install.sh`. O
   **O que exatamente foi verificado:** o aperto de mão entre quem escreve e quem
   lê — o serviço grava `~/.cache/battlog-status` e o `kmctl status` o traz de
   volta. Só que **com carga vazia**: o arquivo tem só a linha `ts`, nenhuma linha
-  `dev`. O trecho que desenha aparelho nunca recebeu nada nesta máquina, e a
-  extensão nunca chegou a ser carregada pelo shell (ver o item da `shell-version`
-  acima). Nada disso é falha — é consequência do item seguinte.
+  `dev`. Com carga sintética o desenho também foi exercitado (ver acima); o que
+  nunca aconteceu foi um aparelho **real** desta máquina chegar ao painel, e isso
+  é consequência do item seguinte, não falha.
 - **Teclado: `layout/calecos/`**, que é outro arranjo — `us(intl)` de fábrica, sem
   variante XKB, sem mexer no `evdev.xml`, Ctrl direito continua Ctrl, e um
   `XCompose` de três linhas que só acrescenta o `ç`. O porquê está em
