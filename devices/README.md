@@ -13,7 +13,8 @@ sabe um barramento, e devolve **quantos aparelhos achar**. Declara `SOURCE = Tru
 + `discover()`. É o que faz um teclado sem fio novo aparecer sozinho.
 
 **Antes de escrever um diretório de modelo, ligue o aparelho e rode
-`kmctl devices`.** Se uma fonte genérica já o vê, não escreva nada — o diretório
+`kmctl scan`** — ele diz se alguma fonte genérica já o vê e, se não, se o aparelho
+é candidato a diretório (tem canal de fabricante) ou se não há por onde. Se uma fonte genérica já o vê, não escreva nada — o diretório
 só se justifica quando nenhuma vê (bateria por opcode de fabricante, como o
 M800 PRO e o K86, que não aparecem no UPower nem no `power_supply`) ou quando há
 algo a declarar que o barramento não sabe: um `WONT`, ou caps de controle.

@@ -50,7 +50,8 @@ Um comando só, `./kmctl`, que não conhece modelo nenhum: ele pergunta ao
 `devices/` quem está plugado e oferece o que cada modelo declarar saber fazer.
 
 ```bash
-./kmctl devices              # modelos suportados, quem está plugado, quem o painel usa
+./kmctl devices              # o que está aqui com bateria, e os módulos
+./kmctl scan                 # este aparelho vai aparecer? e se não, por quê
 ./kmctl battery              # percentual agora
 ./kmctl probe                # grava uma rodada no histórico (uma vez só)
 ./kmctl watch                # fica lendo e atualizando o painel (é o serviço)
@@ -93,6 +94,26 @@ Três estados, e a diferença entre os dois últimos é de propósito:
 - nada com bateria aqui → **o widget some**. Ausência significando ausência;
 - serviço parado (ou cache com mais de 30 min) → um `—`. Aí o problema é quem
   escreve, e esconder isso esconderia a falha.
+
+## Funciona com o meu aparelho?
+
+Rode `./kmctl scan` com ele ligado. A resposta é **depende da marca**, e o scan
+diz em qual dos três caminhos o seu caiu:
+
+| caminho | funciona sozinho? | cobre |
+|---|---|---|
+| **Bluetooth** | **sim** | qualquer fone, mouse, teclado ou controle BT cujo firmware reporte bateria — a maioria dos modernos |
+| **Página de bateria do HID** | **sim** | quem segue o padrão: o kernel cria a entrada em `/sys/class/power_supply` e a fonte genérica lista. Muito teclado e mouse de receptor 2.4G |
+| **Protocolo de fabricante** | **não** | o resto: a bateria só sai por opcode que ninguém documentou. Precisa de um diretório em `devices/` |
+
+O terceiro caso não é raro em periférico de jogo barato — é onde caem o Delux
+M800 PRO e o Attack Shark K86 daqui, e é a razão de este repo existir. Medido no
+M800 PRO: o descritor HID dele **não declara bateria nenhuma**, então o kernel não
+tem como saber que existe bateria ali. Só o opcode `0x20` do fabricante sabe.
+
+`kmctl scan` distingue os três e diz, para o que não aparece, se é candidato a
+diretório (tem canal de fabricante) ou se não há por onde (não expõe bateria em
+lugar nenhum — com fio, ou sem bateria).
 
 ## Adicionar o seu periférico
 

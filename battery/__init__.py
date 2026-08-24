@@ -91,7 +91,14 @@ def probe(wait=60, keep=KEEP_DAYS, db=DB, echo=print):
     return n
 
 
-def watch(interval=20, record=600, wait=0, keep=KEEP_DAYS, db=DB, echo=print):
+def linhas_de_aparelho(texto):
+    """Só as linhas `dev` — o `ts` fora. É o que se compara para saber se algo
+    mudou de verdade, já que o `ts` muda sempre."""
+    return [l for l in texto.splitlines() if l.startswith("dev ")]
+
+
+def watch(interval=20, record=600, heartbeat=300, wait=0, keep=KEEP_DAYS,
+          db=DB, echo=print):
     """Mantém o cache do painel em dia até ser morto. É o que o serviço roda.
 
     **Duas cadências, de propósito.** O cache é reescrito assim que algum número
@@ -105,18 +112,27 @@ def watch(interval=20, record=600, wait=0, keep=KEEP_DAYS, db=DB, echo=print):
     aparelho o reporta** — reler mais vezes não cria informação que ninguém
     mandou.
 
-    O cache só é gravado quando o texto muda: escrever igual acordaria o monitor
-    de arquivo do painel para nada.
+    O cache é gravado quando as **linhas de aparelho** mudam, ou a cada
+    `heartbeat` segundos. As duas condições existem por motivos opostos e as duas
+    são necessárias:
+
+    - comparar só as linhas de aparelho, e não o texto todo, porque o `ts` muda a
+      cada leitura — comparar o texto inteiro nunca acusaria "igual", e o painel
+      seria acordado a cada tique à toa (era o que acontecia);
+    - gravar mesmo sem mudança, de vez em quando, porque o `ts` é **batimento**:
+      é por ele que a extensão sabe que quem escreve está vivo. Congelá-lo faria
+      o painel exibir número velho como se fosse atual, que é justamente o que o
+      limite de 30 min existe para evitar.
     """
     con = db_open(db)
     despertador = wake.Wake()
     quais = ", ".join(despertador.sources) or "nenhum (só o timer)"
-    echo(f"watch: timer {interval}s, histórico a cada {record}s, "
-         f"despertadores: {quais}")
+    echo(f"watch: timer {interval}s, histórico {record}s, batimento "
+         f"{heartbeat}s, despertadores: {quais}")
     for f in despertador.falhas:
         echo(f"  despertador indisponível: {f}")
     calado = (lambda *_a, **_k: None)
-    anterior, ultimo_registro = None, 0.0
+    anteriores, ultimo_registro, ultima_escrita = None, 0.0, 0.0
     try:
         while True:
             leituras = ler_todos(wait, calado)
@@ -125,11 +141,15 @@ def watch(interval=20, record=600, wait=0, keep=KEEP_DAYS, db=DB, echo=print):
                 gravar(con, leituras, keep, calado)
                 ultimo_registro = agora
             texto = status_text(con, [f for f, _ in leituras], leituras)
-            if texto != anterior:
+            linhas = linhas_de_aparelho(texto)
+            mudou = linhas != anteriores
+            if mudou or agora - ultima_escrita >= heartbeat:
                 write_status(con, texto=texto)
-                anterior = texto
-                echo("".join(f"  {l}\n" for l in texto.splitlines()[1:])
-                     or "  (nada com bateria)")
+                ultima_escrita = agora
+                if mudou:  # log só do que é notícia
+                    echo("".join(f"  {l}\n" for l in linhas)
+                         or "  (nada com bateria)")
+                anteriores = linhas
             despertador.wait(interval)
     except KeyboardInterrupt:
         pass

@@ -6,6 +6,7 @@ oferece o que cada modelo declarar em CAPS. Um modelo novo aparece aqui sozinho
 no instante em que o diretório dele existe.
 
     kmctl devices                  quem é suportado, quem está plugado
+    kmctl scan                     este aparelho vai aparecer? e se não, por quê
     kmctl battery                  percentual agora (leitura ao vivo)
     kmctl probe                    grava uma rodada no histórico (é o do cron)
     kmctl watch                    fica lendo e atualizando o painel (é o serviço)
@@ -126,6 +127,25 @@ def cmd_devices(args):
     return 0
 
 
+def cmd_scan(args):
+    import scan
+    linhas = scan.varrer()
+    if not linhas:
+        print("nenhum periférico HID nem Bluetooth encontrado")
+        return 0
+    largura = max(len(n) for n, _, _ in linhas)
+    for nome, detalhe, veredito in linhas:
+        print(f"{nome:{largura}}  {detalhe}")
+        print(f"{'':{largura}}  -> {veredito}")
+    print()
+    print("Três caminhos para a bateria aparecer, em ordem de sorte:")
+    print("  1. Bluetooth       — sozinho, se o firmware reportar")
+    print("  2. bateria no HID  — sozinho, o kernel cria o power_supply")
+    print("  3. fabricante      — só com um diretório em devices/, ou seja")
+    print("                       engenharia reversa (veja devices/README.md)")
+    return 0
+
+
 def cmd_battery(args):
     achados = devices.present()
     if args.device:
@@ -169,6 +189,7 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("devices", help="modelos suportados e quem está plugado")
+    sub.add_parser("scan", help="diagnóstico: por que um aparelho não aparece")
     ba = sub.add_parser("battery", help="percentual agora (leitura ao vivo)")
     ba.add_argument("--wait", type=float, default=5,
                     help="segundos esperando o mouse se anunciar (default: 5)")
@@ -180,6 +201,11 @@ def main():
     wt.add_argument("--record", type=float, default=600,
                     help="segundos entre amostras no histórico (default: 600). "
                          "Gravar a cada leitura encheria o banco sem dizer nada")
+    wt.add_argument("--heartbeat", type=float, default=300,
+                    help="segundos entre gravações do cache mesmo sem mudança "
+                         "(default: 300). É o batimento que diz ao painel que "
+                         "o serviço está vivo; sem ele o painel mostraria "
+                         "número velho como atual")
     wt.add_argument("--keep", type=int, default=battery.KEEP_DAYS,
                     help=f"dias de histórico (default: {battery.KEEP_DAYS})")
     pr = sub.add_parser("probe", help="grava uma rodada no histórico (cron)")
@@ -221,6 +247,8 @@ def main():
         return selftest.main()
     if args.cmd == "devices":
         return cmd_devices(args)
+    if args.cmd == "scan":
+        return cmd_scan(args)
     if args.cmd == "battery":
         return cmd_battery(args)
     if args.cmd == "modes":
@@ -228,7 +256,8 @@ def main():
     if args.cmd == "probe":
         return 0 if battery.probe(args.wait, args.keep) else 1
     if args.cmd == "watch":
-        return battery.watch(args.interval, args.record, keep=args.keep)
+        return battery.watch(args.interval, args.record, args.heartbeat,
+                             keep=args.keep)
     if args.cmd == "status":
         con = battery.db_open()
         # uma descoberta só: imprimir o que foi gravado, não uma segunda leitura

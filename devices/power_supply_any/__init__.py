@@ -32,12 +32,38 @@ def _ler(base, nome):
         return ""
 
 
-def kind_de(texto):
+# bInterfaceProtocol da classe HID: é o que o próprio aparelho declara ser, e
+# vale mais que adivinhar pelo nome — "MX Master 3" não tem a palavra "mouse".
+PROTO_KIND = {"1": "keyboard", "2": "mouse"}
+
+
+def kind_por_nome(texto):
+    """Palpite pelo nome. Último recurso: nome é livre e marca nenhuma promete
+    conter a palavra certa."""
     baixo = texto.lower()
     for palavra, kind in PALAVRA_KIND:
         if palavra in baixo:
             return kind
     return "other"
+
+
+def kind_de(base, nome=""):
+    """Categoria do aparelho: primeiro o que ele declara, depois o nome.
+
+    Sobe a árvore do sysfs procurando `bInterfaceProtocol` — a interface USB HID
+    diz `1` para teclado e `2` para mouse. É informação do aparelho, não palpite
+    sobre a string de marketing dele.
+    """
+    caminho = os.path.realpath(base)
+    for _ in range(6):  # power_supply -> hid -> interface USB, com folga
+        proto = _ler(caminho, "bInterfaceProtocol")
+        if proto in PROTO_KIND:
+            return PROTO_KIND[proto]
+        pai = os.path.dirname(caminho)
+        if pai == caminho:
+            break
+        caminho = pai
+    return kind_por_nome(nome)
 
 
 def nome_de(base):
@@ -59,7 +85,8 @@ def discover():
         if not _ler(base, "capacity"):
             continue
         nome = nome_de(base)
-        out.append(("ps_" + os.path.basename(base), nome, kind_de(nome), base))
+        out.append(("ps_" + os.path.basename(base), nome,
+                    kind_de(base, nome), base))
     return out
 
 

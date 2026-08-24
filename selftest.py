@@ -310,13 +310,30 @@ def fontes_genericas():
         assert kind in devices.KINDS, kind
 
     # --- power_supply_any: le sysfs, entao testa contra um sysfs de mentira ---
-    assert power_supply_any.kind_de("Logitech K380 Keyboard") == "keyboard"
-    assert power_supply_any.kind_de("algum treco") == "other"
+    # nome e ultimo recurso: marca nenhuma promete conter a palavra certa
+    assert power_supply_any.kind_por_nome("Logitech K380 Keyboard") == "keyboard"
+    assert power_supply_any.kind_por_nome("Algum Mouse Sem Fio") == "mouse"
+    assert power_supply_any.kind_por_nome("MX Master 3") == "other", \
+        "nome de marca nao diz a categoria — e por isso que o proto vem antes"
+    for k in ("keyboard", "mouse", "other"):
+        assert k in devices.KINDS
     with tempfile.TemporaryDirectory() as d:
         def escreve(**campos):
             for k, v in campos.items():
                 (pathlib.Path(d) / k).write_text(v + "\n")
         escreve(capacity="55", status="Discharging", scope="Device", type="Battery")
+        # sem bInterfaceProtocol na arvore, cai no palpite pelo nome
+        assert power_supply_any.kind_de(d, "Teclado Sem Fio") == "keyboard"
+        assert power_supply_any.kind_de(d, "MX Master 3") == "other"
+        # com o proto declarado, ele ganha do nome — inclusive contra um nome
+        # que apontaria para o lado errado
+        escreve(bInterfaceProtocol="2")
+        assert power_supply_any.kind_de(d, "Teclado Sem Fio") == "mouse", \
+            "o que o aparelho declara tem que ganhar do nome"
+        escreve(bInterfaceProtocol="1")
+        assert power_supply_any.kind_de(d, "MX Master 3") == "keyboard"
+        escreve(bInterfaceProtocol="0")  # 0 = nenhum dos dois
+        assert power_supply_any.kind_de(d, "Algum Mouse") == "mouse"
         r = power_supply_any.battery(d)
         assert (r.pct, r.charging, r.raw) == (55, 0, b""), r
         escreve(status="Charging")
@@ -329,6 +346,25 @@ def fontes_genericas():
         escreve(capacity="nao-numero")
         assert power_supply_any.battery(d) is None
     return "fontes genericas ok"
+
+
+def batimento():
+    """As linhas comparadas para decidir se o cache mudou.
+
+    O `ts` muda a cada leitura, entao comparar o texto inteiro nunca acusaria
+    "igual" -- e era o bug: o painel era acordado a cada tique de 20 s a toa, e a
+    otimizacao documentada nunca disparava.
+    """
+    a = "ts 100\ndev mouse m 50 0 Mouse\n"
+    b = "ts 999\ndev mouse m 50 0 Mouse\n"
+    c = "ts 999\ndev mouse m 49 0 Mouse\n"
+    assert a != b, "o ts muda mesmo (e o motivo do bug)"
+    assert battery.linhas_de_aparelho(a) == battery.linhas_de_aparelho(b), \
+        "so o ts mudou: nao e mudanca"
+    assert battery.linhas_de_aparelho(b) != battery.linhas_de_aparelho(c), \
+        "o percentual mudou: e mudanca"
+    assert battery.linhas_de_aparelho("ts 1\n") == []
+    return "comparacao do cache ignora o ts"
 
 
 def despertadores():
@@ -421,8 +457,8 @@ def banco():
 
 def main():
     for f in (contrato, parsers, pacotes_f75, pacotes_m800pro, percentual,
-              eco_do_seq, fontes_genericas, deducao, despertadores, analise,
-              banco):
+              eco_do_seq, fontes_genericas, deducao, batimento,
+              despertadores, analise, banco):
         print(f"  {f():.<60} ok")
     print("selftest ok")
     return 0
