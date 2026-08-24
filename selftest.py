@@ -12,6 +12,7 @@ import time
 
 import battery
 import devices
+import wake
 from devices import (ajazz_aj139, attackshark_k86, bluez_any, delux_m800pro,
                      delux_m900pro, freewolf_f75, power_supply_any)
 
@@ -330,6 +331,41 @@ def fontes_genericas():
     return "fontes genericas ok"
 
 
+def despertadores():
+    """Os filtros de dica do wake.py, sem precisar de udev nem de BlueZ.
+
+    Eles decidem SE vale reler, nunca O QUE ler. Errar para o lado frouxo custa
+    releitura desnecessaria (tempestade de ioctl); errar para o lado apertado
+    custa o tempo real -- o aparelho conecta e ninguem percebe ate o timer.
+    """
+    # uevent chega como blob com campos separados por \0
+    hidraw = b"add@/devices/x\x00ACTION=add\x00SUBSYSTEM=hidraw\x00DEVNAME=hidraw9"
+    assert wake.interessa_udev(hidraw)
+    for sub in (b"usb", b"power_supply", b"bluetooth"):
+        assert wake.interessa_udev(b"ACTION=add\x00SUBSYSTEM=" + sub)
+    # disco e rede nao interessam: numa maquina de trabalho nao sao raros, e
+    # cada um viraria releitura de hardware
+    assert not wake.interessa_udev(b"ACTION=change\x00SUBSYSTEM=block")
+    assert not wake.interessa_udev(b"ACTION=change\x00SUBSYSTEM=net")
+    assert not wake.interessa_udev(b"")
+
+    # gdbus monitor: uma linha por sinal
+    assert wake.interessa_bluez(
+        b"/org/bluez/hci0/dev_X: org.freedesktop.DBus.Properties.PropertiesChanged "
+        b"('org.bluez.Device1', {'Connected': <false>}, @as [])")
+    assert wake.interessa_bluez(b"... {'Percentage': <byte 0x5a>} ...")
+    assert wake.interessa_bluez(b"... InterfacesAdded ...")
+    # volume de transporte durante audio: o caso que faria o loop girar a esmo
+    assert not wake.interessa_bluez(
+        b"/org/bluez/hci0/dev_X/fd3: org.freedesktop.DBus.Properties."
+        b"PropertiesChanged ('org.bluez.MediaTransport1', {'Volume': <127>}, @as [])")
+    # as duas linhas de banner que o monitor imprime ao subir
+    assert not wake.interessa_bluez(
+        b"Monitoring signals from all objects owned by org.bluez")
+    assert not wake.interessa_bluez(b"The name org.bluez is owned by :1.7")
+    return "filtros dos despertadores ok"
+
+
 def analise():
     def s(*seqs):
         return [(i, bytes(b)) for i, b in enumerate(seqs)]
@@ -385,7 +421,8 @@ def banco():
 
 def main():
     for f in (contrato, parsers, pacotes_f75, pacotes_m800pro, percentual,
-              eco_do_seq, fontes_genericas, deducao, analise, banco):
+              eco_do_seq, fontes_genericas, deducao, despertadores, analise,
+              banco):
         print(f"  {f():.<60} ok")
     print("selftest ok")
     return 0

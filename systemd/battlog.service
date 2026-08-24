@@ -1,0 +1,22 @@
+# Serviço de usuário (não do sistema): o watch só lê hidraw e D-Bus e escreve
+# dois arquivos dentro do $HOME. Nada aqui pede root — o acesso a hidraw vem das
+# regras udev, que são o único pedaço com sudo neste repo.
+#
+# O @REPO@ é substituído pelo install.sh pelo caminho real do clone.
+[Unit]
+Description=battlog — bateria dos periféricos no painel do GNOME
+Documentation=file://@REPO@/battery/README.md
+
+[Service]
+Type=simple
+# Sem isto o Python buffera stdout (não é terminal) e o journal fica vazio até o
+# processo morrer — que é exatamente quando se quer ver o que ele estava lendo.
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@REPO@/kmctl watch
+# on-failure e não always: o watch sai com 0 quando é interrompido de propósito,
+# e `always` o ressuscitaria em loop nesse caso.
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

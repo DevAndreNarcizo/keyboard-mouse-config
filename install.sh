@@ -89,6 +89,21 @@ else
   echo "==> GNOME não detectado, pulando gsettings"
 fi
 
+echo "==> serviço de usuário (bateria em tempo real)"
+UNIT="$HOME/.config/systemd/user/battlog.service"
+mkdir -p "$(dirname "$UNIT")"
+sed "s|@REPO@|$PWD|g" systemd/battlog.service > "$UNIT"
+systemctl --user daemon-reload
+systemctl --user enable --now battlog.service
+echo "    battlog.service ativo — `systemctl --user is-active battlog.service`"
+
+# O cron fazia o mesmo trabalho a cada 10 min e ficaria brigando com o serviço
+# pelo mesmo arquivo de cache. Sai, e o usuário é avisado do que foi tirado.
+if crontab -l 2>/dev/null | grep -q 'kmctl probe'; then
+  crontab -l 2>/dev/null | grep -v 'kmctl probe' | crontab -
+  echo "    removida a linha de cron do \`kmctl probe\` — o serviço substitui"
+fi
+
 cat <<'EOF'
 
 pronto.
@@ -101,13 +116,21 @@ aparece depois que o gnome-shell reiniciar:
 Depois disso o teclado sobe certo em todo login, e sobrevive a plugar/desplugar
 teclado — que é o que o arranjo por autostart não fazia.
 
-Se esta máquina tem teclado/mouse suportado e você quer o log de bateria, adicione ao
-`crontab -e` (ajuste o caminho):
+A bateria no painel é alimentada pelo `battlog.service`, que este script já
+habilitou. Ele roda `kmctl watch`: relê a cada 20 s e reage **na hora** a
+conectar/desconectar, porque escuta udev e o BlueZ. O painel vigia o arquivo de
+cache, então o número aparece no instante em que muda.
+
+  systemctl --user status battlog.service     ver se está de pé
+  journalctl --user -u battlog.service -f     acompanhar o que ele lê
+
+Sem o serviço, o painel mostra "—" (de propósito: número velho enganaria).
+
+Prefere cron? `kmctl probe` continua fazendo uma rodada só, e serve:
 
   */10 * * * * /caminho/para/keyboard-mouse-config/kmctl probe --wait 90 >/tmp/kmctl.log 2>&1
 
-É esse cron que alimenta a extensão do painel: ele reescreve ~/.cache/battlog-status
-a cada rodada. Sem cron, o painel mostra "—" (de propósito: número velho enganaria).
+Mas não use os dois: brigariam pelo mesmo arquivo de cache.
 
 `./kmctl devices` mostra o que está aqui com bateria — é a mesma lista que o
 painel desenha; `./kmctl selftest` checa o repo sem precisar de hardware.

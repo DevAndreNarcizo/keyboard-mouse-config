@@ -14,6 +14,7 @@ import sqlite3
 import time
 
 import devices
+import wake
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(DIR, "battlog.db")
@@ -32,12 +33,15 @@ def db_open(path=DB):
     return con
 
 
-def probe(wait=60, keep=KEEP_DAYS, db=DB, echo=print):
-    """Lê todos os modelos plugados e grava. Devolve quantos responderam."""
-    agora = int(time.time())
-    lidos, brutos = [], []
-    achados = devices.present()
-    for f in achados:
+def ler_todos(wait=0, echo=print):
+    """[(Found, Reading)] de tudo que respondeu agora. **Não toca no banco.**
+
+    Separado do `probe` porque o `watch` lê muito mais vezes do que grava: o
+    cache do painel quer o número de agora, o histórico não quer uma linha a
+    cada 20 s.
+    """
+    out = []
+    for f in devices.present():
         try:
             r = f.mod.battery(f.handle, wait)
         except PermissionError:
@@ -50,30 +54,91 @@ def probe(wait=60, keep=KEEP_DAYS, db=DB, echo=print):
         if r is None:
             echo(f"{f.ident}: nada em {f.handle} em {wait:.0f}s")
             continue
-        lidos.append((agora, f.ident, r.pct, r.charging))
-        if r.raw:
-            brutos.append((agora, f.ident, r.raw.hex(" ")))
         carga = " (carregando)" if r.charging else ""
         echo(f"{f.ident}: {r.pct}%{carga}" +
              (f"  [{r.raw.hex(' ')}]" if r.raw else ""))
+        out.append((f, r))
+    return out
 
-    con = db_open(db)
-    con.executemany("INSERT INTO battery VALUES (?,?,?,?)", lidos)
-    con.executemany("INSERT INTO raw VALUES (?,?,?)", brutos)
+
+def gravar(con, leituras, keep=KEEP_DAYS, echo=print):
+    """Põe as leituras no histórico e poda o que passou de `keep` dias."""
+    agora = int(time.time())
+    con.executemany("INSERT INTO battery VALUES (?,?,?,?)",
+                    [(agora, f.ident, r.pct, r.charging) for f, r in leituras])
+    con.executemany("INSERT INTO raw VALUES (?,?,?)",
+                    [(agora, f.ident, r.raw.hex(" ")) for f, r in leituras
+                     if r.raw])
     cut = agora - keep * 86400
     dropped = sum(con.execute(f"DELETE FROM {t} WHERE ts < ?", (cut,)).rowcount
                   for t in ("battery", "raw"))
     con.commit()
-    # a mesma lista da leitura: descobrir de novo forkaria `busctl` e releria
-    # todo descritor de hidraw, e um aparelho que saísse no meio faria o arquivo
-    # discordar do que acabou de ser lido
-    write_status(con, achados=achados)
     if dropped:
         echo(f"({dropped} amostras com mais de {keep} dias apagadas)")
-    return len(lidos)
+    return len(leituras)
 
 
-def status_text(con, achados=None):
+def probe(wait=60, keep=KEEP_DAYS, db=DB, echo=print):
+    """Uma rodada: lê, grava e atualiza o cache. É o que um cron roda.
+
+    Continua existindo para quem prefere cron ao serviço — o `watch` faz o mesmo
+    em loop e com despertador.
+    """
+    leituras = ler_todos(wait, echo)
+    con = db_open(db)
+    n = gravar(con, leituras, keep, echo)
+    write_status(con, texto=status_text(con, [f for f, _ in leituras], leituras))
+    return n
+
+
+def watch(interval=20, record=600, wait=0, keep=KEEP_DAYS, db=DB, echo=print):
+    """Mantém o cache do painel em dia até ser morto. É o que o serviço roda.
+
+    **Duas cadências, de propósito.** O cache é reescrito assim que algum número
+    muda ou um aparelho entra/sai; o histórico recebe uma amostra a cada
+    `record` segundos. Gravar a cada 20 s encheria o banco com ~4300 linhas por
+    dia por aparelho sem dizer nada novo — bateria não muda nessa velocidade, e o
+    `show` desenha pior com ruído.
+
+    O que dá tempo real de verdade é o despertador: conectar ou desconectar um
+    fone aparece em menos de um segundo. **Percentual não fica mais rápido que o
+    aparelho o reporta** — reler mais vezes não cria informação que ninguém
+    mandou.
+
+    O cache só é gravado quando o texto muda: escrever igual acordaria o monitor
+    de arquivo do painel para nada.
+    """
+    con = db_open(db)
+    despertador = wake.Wake()
+    quais = ", ".join(despertador.sources) or "nenhum (só o timer)"
+    echo(f"watch: timer {interval}s, histórico a cada {record}s, "
+         f"despertadores: {quais}")
+    for f in despertador.falhas:
+        echo(f"  despertador indisponível: {f}")
+    calado = (lambda *_a, **_k: None)
+    anterior, ultimo_registro = None, 0.0
+    try:
+        while True:
+            leituras = ler_todos(wait, calado)
+            agora = time.monotonic()
+            if agora - ultimo_registro >= record:
+                gravar(con, leituras, keep, calado)
+                ultimo_registro = agora
+            texto = status_text(con, [f for f, _ in leituras], leituras)
+            if texto != anterior:
+                write_status(con, texto=texto)
+                anterior = texto
+                echo("".join(f"  {l}\n" for l in texto.splitlines()[1:])
+                     or "  (nada com bateria)")
+            despertador.wait(interval)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        despertador.close()
+    return 0
+
+
+def status_text(con, achados=None, leituras=None):
     """O que o painel lê. **Uma linha por aparelho presente**, não por categoria:
 
         ts 1787588709
@@ -87,16 +152,23 @@ def status_text(con, achados=None):
     por aparelho porque um fone, um mouse e um teclado sem fio ao mesmo tempo são
     três coisas para mostrar, não uma escolha a fazer.
 
-    O valor vem da última linha do banco, não da rodada atual, de propósito: o
-    receptor do mouse só fala com o mouse em uso, e mouse parado não gastou
-    bateria, então repetir o último número é mais verdadeiro que apagá-lo. Quem
-    morre de verdade é o cron, e isso aparece no `ts`: a extensão compara com o
-    relógio e mostra "—" em vez de um número velho.
+    O valor é o da leitura de agora quando ela existe (`leituras`), e a última
+    linha do banco quando o aparelho está presente mas não respondeu. Isso é de
+    propósito: o receptor do mouse só fala com o mouse em uso, e mouse parado não
+    gastou bateria — repetir o último número é mais verdadeiro que apagá-lo. Quem
+    morre de verdade é o cron ou o serviço, e isso aparece no `ts`: a extensão
+    compara com o relógio e mostra "—" em vez de um número velho.
     """
+    vivas = {f.ident: r for f, r in (leituras or ())}
     linhas = [f"ts {int(time.time())}"]
     for f in devices.present() if achados is None else achados:
-        row = con.execute("SELECT pct, charging FROM battery WHERE device = ? "
-                          "ORDER BY ts DESC LIMIT 1", (f.ident,)).fetchone()
+        r = vivas.get(f.ident)
+        if r is not None:
+            row = (r.pct, r.charging)
+        else:
+            row = con.execute(
+                "SELECT pct, charging FROM battery WHERE device = ? "
+                "ORDER BY ts DESC LIMIT 1", (f.ident,)).fetchone()
         if not row:
             continue
         carga = "-" if row[1] is None else str(int(row[1]))

@@ -52,22 +52,47 @@ Um comando só, `./kmctl`, que não conhece modelo nenhum: ele pergunta ao
 ```bash
 ./kmctl devices              # modelos suportados, quem está plugado, quem o painel usa
 ./kmctl battery              # percentual agora
-./kmctl probe                # grava uma rodada no histórico (é o que o cron roda)
+./kmctl probe                # grava uma rodada no histórico (uma vez só)
+./kmctl watch                # fica lendo e atualizando o painel (é o serviço)
 ./kmctl show                 # timeline
 ./kmctl rgb 00ff80           # cor (nos modelos que fazem)
 ./kmctl selftest             # checa o repo inteiro, sem precisar de hardware
 ```
 
+## Tempo real
+
+Quem alimenta o painel é o `battlog.service` (unidade **de usuário**, o
+`install.sh` habilita), rodando `kmctl watch`. Duas cadências de propósito:
+
+- **cache do painel**: reescrito assim que algum número muda. E o painel *vigia*
+  o arquivo, então aparece na hora — não há polling do lado da extensão.
+- **histórico**: uma amostra a cada 10 min. Gravar a cada leitura poria ~4300
+  linhas por dia por aparelho no banco sem dizer nada novo.
+
+Presença é instantânea: o `watch` escuta **udev** (socket netlink, stdlib pura) e
+o **BlueZ** (`gdbus monitor`), então conectar ou desconectar um fone aparece em
+menos de um segundo. Medido: 2,0 s do `udevadm trigger` até o despertador acordar.
+
+O princípio que evita a gambiarra: **despertador nunca é fonte de dado.** Ele
+entrega um bit — "vai olhar de novo" — e quem lê é sempre `present()` +
+`battery()`. Assim não há um segundo parser de D-Bus para manter em sincronia, e
+despertador que morre degrada para "só o timer" em vez de dar número errado.
+
+**Percentual não fica mais rápido que o aparelho o reporta.** O fone manda
+bateria de vez em quando pelo próprio rádio; o mouse muda 1% a cada muitos
+minutos. Reler mais vezes não cria informação que ninguém mandou — e é por isso
+que o `--interval` é 20 s e não 1 s.
+
 O widget do painel (`panel/battlog@victor/`) não fala com hardware: lê o cache
-que o `probe` escreve. **Um slot por aparelho**, com `⚡` quando carregando, e a
+que o `watch` escreve. **Um slot por aparelho**, com `⚡` quando carregando, e a
 lista vem do arquivo — aparelho novo não pede mexer em JS.
 
 Três estados, e a diferença entre os dois últimos é de propósito:
 
 - aparelhos presentes → um slot para cada;
 - nada com bateria aqui → **o widget some**. Ausência significando ausência;
-- cron parado (ou cache com mais de 30 min) → um `—`. Aí o problema é o cron, e
-  esconder isso esconderia a falha.
+- serviço parado (ou cache com mais de 30 min) → um `—`. Aí o problema é quem
+  escreve, e esconder isso esconderia a falha.
 
 ## Adicionar o seu periférico
 

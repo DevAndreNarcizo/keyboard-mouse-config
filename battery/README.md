@@ -5,7 +5,8 @@ SQLite, stdlib, sem daemon. Este módulo não conhece modelo nenhum: pergunta ao
 devolver.
 
 ```bash
-./kmctl probe        # grava uma rodada (é o que o cron roda)
+./kmctl probe        # grava uma rodada (uma vez só)
+./kmctl watch        # loop: mantém o painel em dia (é o battlog.service)
 ./kmctl raw          # quais bytes variaram e como (achar bateria em modelo novo)
 ./kmctl show         # timeline
 ./kmctl status       # último valor de cada categoria, e atualiza o cache do painel
@@ -47,7 +48,7 @@ Três decisões que valem o comentário:
 
 - **O valor vem da última linha do banco, não da rodada atual.** Mouse parado
   não gastou bateria: repetir o último número é mais verdadeiro que apagá-lo.
-- **`ts` mais velho que 30 min vira `—`.** É o cron que morreu, e um número
+- **`ts` mais velho que 30 min vira `—`.** É o serviço que morreu, e um número
   velho no painel engana justamente por parecer atual.
 - **Quem descobre os aparelhos é o Python, não a extensão.** O cache traz uma
   linha por aparelho presente e a extensão desenha o que vier; ela não escolhe
@@ -77,3 +78,20 @@ perdido histórico — já aconteceu duas vezes. É também o que alimenta o
 
 Poda de **90 dias** roda dentro do próprio `probe` (`--keep` muda o prazo); não
 há segunda rotina para agendar.
+
+## Duas cadências, e por quê
+
+O `watch` lê muito mais vezes do que grava, e isso é decisão, não descuido:
+
+| | com que frequência | por quê |
+|---|---|---|
+| cache do painel | assim que muda | é o que a pessoa vê |
+| histórico (sqlite) | a cada 10 min | 20 s poriam ~4300 linhas/dia/aparelho sem dizer nada |
+
+Por isso `ler_todos()` e `gravar()` são separados, e o `probe` (a rodada única do
+cron) é a composição dos dois. O cache também só é reescrito quando o **texto**
+muda: gravar igual acordaria o monitor de arquivo do painel para nada.
+
+E o valor do cache é o da leitura de agora quando ela existe, caindo para a
+última linha do banco quando o aparelho está presente e não respondeu — é o caso
+do mouse parado, que não gastou bateria e cujo último número continua verdadeiro.

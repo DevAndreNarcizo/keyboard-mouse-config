@@ -1,8 +1,12 @@
 // Bateria de tudo que está aqui e tem bateria, no painel.
 //
-// Não toca em hardware: lê ~/.cache/battlog-status, que o `kmctl probe` do cron
-// reescreve a cada 10 min. Descoberta, protocolo, escolha de fonte e histórico
-// ficam no lado Python — aqui só se desenha o que o arquivo mandar.
+// Não toca em hardware: lê ~/.cache/battlog-status, que o `kmctl watch` reescreve
+// assim que algo muda. Descoberta, protocolo, escolha de fonte e histórico ficam
+// no lado Python — aqui só se desenha o que o arquivo mandar.
+//
+// O arquivo é VIGIADO (Gio.FileMonitor), não relido por tempo: mudança aparece na
+// hora. O timer que sobrou é rede de segurança para um caso só — quando quem
+// escreve morre, ninguém gera evento, e é o timer que faz o "—" aparecer.
 //
 //     ts 1787589472
 //     dev mouse delux_m800pro 100 0 Delux M800 PRO
@@ -22,6 +26,7 @@
 //   - arquivo velho ou ausente      -> um "—". Aí o problema é o cron ter
 //                                     morrido, e esconder isso esconderia a falha.
 import Clutter from 'gi://Clutter';
+import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import St from 'gi://St';
@@ -30,8 +35,11 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const STATUS = GLib.build_filenamev([GLib.get_user_cache_dir(), 'battlog-status']);
-const VELHO = 30 * 60;  // s desde a última gravação: acima disso o cron morreu
-const RELER = 120;      // s entre releituras do arquivo
+const VELHO = 30 * 60;  // s desde a última gravação: acima disso quem lê morreu
+// O arquivo é vigiado, então releitura por tempo é só rede de segurança — ela
+// existe para a transição para "—" acontecer, que é justamente o caso em que
+// ninguém escreve e portanto nenhum evento chega.
+const RELER = 60;
 
 // As chaves são os KINDS do lado Python. Kind que não estiver aqui cai no
 // genérico — o Python manda "other" quando uma fonte acha algo que não sabe
@@ -79,6 +87,19 @@ class Battlog extends PanelMenu.Button {
         this._box = new St.BoxLayout({style_class: 'panel-status-menu-box'});
         this.add_child(this._box);
         this._atualizar();
+        // Vigia o arquivo: o `kmctl watch` reescreve no instante em que algo
+        // muda, e o painel reflete na hora em vez de esperar o próximo tick.
+        // O backend inotify do GLib observa o diretório pelo nome, então a troca
+        // atômica (`os.replace`) que o lado Python faz é detectada.
+        try {
+            this._monitor = Gio.File.new_for_path(STATUS)
+                .monitor_file(Gio.FileMonitorFlags.NONE, null);
+            this._monitorId = this._monitor.connect('changed',
+                () => this._atualizar());
+        } catch (e) {
+            // sem monitor o widget continua funcionando pelo timer abaixo
+            this._monitor = null;
+        }
         this._timer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, RELER, () => {
             this._atualizar();
             return GLib.SOURCE_CONTINUE;
@@ -129,6 +150,11 @@ class Battlog extends PanelMenu.Button {
         if (this._timer)
             GLib.Source.remove(this._timer);
         this._timer = null;
+        if (this._monitor) {
+            this._monitor.disconnect(this._monitorId);
+            this._monitor.cancel();
+            this._monitor = null;
+        }
         super.destroy();
     }
 });

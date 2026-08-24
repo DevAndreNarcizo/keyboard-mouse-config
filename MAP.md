@@ -95,8 +95,9 @@ o cabo plugado o dongle continua reportando bateria, então o log não fica com 
 `panel/battlog@victor/`, symlinkada pelo `install.sh` para
 `~/.local/share/gnome-shell/extensions/`. Mostra os dois percentuais na barra de cima.
 
-Lê `~/.cache/battlog-status`, escrito pelo `probe` do cron — a extensão não toca em
-hidraw nem em sqlite, e nem escolhe modelo: isso é decisão do `devices.pick`. Sem cron
+Lê `~/.cache/battlog-status`, escrito pelo `kmctl watch` do `battlog.service` — a
+extensão não toca em hidraw nem em sqlite. Desde 2026-08-24 ela **vigia** o
+arquivo em vez de reler por tempo, então reflete a mudança na hora. Sem o serviço
 rodando (ou `ts` com mais de 30 min) ela mostra `—` em vez de um número velho.
 Detalhes em `battery/README.md`.
 
@@ -120,7 +121,7 @@ Aqui o teclado é um Dell KB216 com fio (não suportado, e não precisa ser: fio
 não tem bateria) e o mouse é um **Delux M800 PRO** por receptor 2.4G.
 
 - **Do projeto, só a metade do mouse está instalada.** `udev/99-delux-m800pro.rules`,
-  o cron do `probe` e a extensão do painel. A camada XKB (`victor(quotefix)`,
+  o `battlog.service` e a extensão do painel. A camada XKB (`victor(quotefix)`,
   `~/.XCompose`, os `gsettings` de input-sources) **não** foi aplicada — o layout
   desta máquina é `br` puro, e trocá-lo não tem relação com o mouse. Quem quiser
   a parte de teclado depois roda o `install.sh`, que faz as duas.
@@ -153,7 +154,7 @@ lê as que o `battlog-status` traz, então um quarto aparelho não pede mexer em
 
 Efeito colateral bem-vindo: **categoria sem aparelho some do painel** em vez de
 mostrar `—` para sempre. Nesta máquina o ícone de teclado desapareceu, que é o
-certo — o Dell é com fio. `—` agora só aparece quando o cron morre, que é
+certo — o Dell é com fio. `—` agora só aparece quando o serviço morre, que é
 justamente o caso que precisa ser visível.
 
 ### Descoberta automática (2026-08-24)
@@ -175,6 +176,28 @@ e o adaptador TP-Link simplesmente não têm o que reportar. Verificado.
 `power_supply`, não aparece no UPower nem no BlueZ — puxa 5V e cala. Então dos
 três aparelhos que o André queria ver, o painel faz dois. Não há contorno: o
 número teria que ser inventado.
+
+### Tempo real (2026-08-24)
+
+O cron de 10 min saiu; entrou o **`battlog.service`** (unidade de usuário) rodando
+`kmctl watch`. O atraso era de até 12 min (cron 10 + painel relendo a cada 2);
+agora presença é instantânea e percentual é no máximo 20 s.
+
+- `wake.py`: despertadores por **udev** (socket netlink, stdlib pura) e **BlueZ**
+  (`gdbus monitor`). Medido: 2,0 s do evento até acordar.
+- A extensão passou a **vigiar** o arquivo de cache (`Gio.FileMonitor`) em vez de
+  reler a cada 2 min. O timer que sobrou serve a um caso só: quando quem escreve
+  morre, ninguém gera evento, e é ele que faz o `—` aparecer.
+- Histórico continua a cada 10 min — cache e banco têm cadências diferentes de
+  propósito.
+
+Regra que segurou o desenho: **despertador nunca é fonte de dado.** Entrega um
+bit, e quem lê é sempre o caminho normal. Sem isso haveria um segundo parser de
+D-Bus competindo com o `devices.present()`.
+
+**O que não fica em tempo real, e não tem conserto:** o percentual. O fone reporta
+bateria de vez em quando pelo próprio rádio, e o mouse muda 1% a cada muitos
+minutos. Ler mais vezes não cria informação que ninguém mandou.
 
 ## Não ativo
 

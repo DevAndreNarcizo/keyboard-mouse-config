@@ -8,6 +8,7 @@ no instante em que o diretório dele existe.
     kmctl devices                  quem é suportado, quem está plugado
     kmctl battery                  percentual agora (leitura ao vivo)
     kmctl probe                    grava uma rodada no histórico (é o do cron)
+    kmctl watch                    fica lendo e atualizando o painel (é o serviço)
     kmctl show                     timeline
     kmctl raw                      quais bytes variaram (achar bateria nova)
     kmctl status                   o cache que o painel lê
@@ -171,6 +172,16 @@ def main():
     ba = sub.add_parser("battery", help="percentual agora (leitura ao vivo)")
     ba.add_argument("--wait", type=float, default=5,
                     help="segundos esperando o mouse se anunciar (default: 5)")
+    wt = sub.add_parser("watch", help="loop que mantém o painel em dia (serviço)")
+    wt.add_argument("--interval", type=float, default=20,
+                    help="segundos entre releituras quando nada acontece "
+                         "(default: 20). Despertador de udev/BlueZ fura isso e "
+                         "reage na hora")
+    wt.add_argument("--record", type=float, default=600,
+                    help="segundos entre amostras no histórico (default: 600). "
+                         "Gravar a cada leitura encheria o banco sem dizer nada")
+    wt.add_argument("--keep", type=int, default=battery.KEEP_DAYS,
+                    help=f"dias de histórico (default: {battery.KEEP_DAYS})")
     pr = sub.add_parser("probe", help="grava uma rodada no histórico (cron)")
     pr.add_argument("--wait", type=float, default=60)
     pr.add_argument("--keep", type=int, default=battery.KEEP_DAYS,
@@ -216,6 +227,8 @@ def main():
         return cmd_modes(args)
     if args.cmd == "probe":
         return 0 if battery.probe(args.wait, args.keep) else 1
+    if args.cmd == "watch":
+        return battery.watch(args.interval, args.record, keep=args.keep)
     if args.cmd == "status":
         con = battery.db_open()
         # uma descoberta só: imprimir o que foi gravado, não uma segunda leitura
