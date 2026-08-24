@@ -7,8 +7,14 @@
 # `layout/calecos/README.md`), então rodar o `install.sh` nesta máquina desfaria
 # o arranjo em vez de montá-lo.
 #
-# Rodar SEM sudo — ele pede sozinho nas duas linhas que precisam.
+# Rodar SEM sudo — ele pede sozinho nas linhas que precisam.
 # Idempotente: pode rodar de novo à vontade.
+#
+# Uma assimetria de propósito: para o ~/.XCompose **a cópia do repo é a que
+# manda**. Editou o arquivo em casa e rodou o script de novo? Ele salva o que
+# estava em ~/.XCompose.bak-<data> e põe a versão do repo no lugar. Quem quiser
+# mudar o Compose muda em `layout/calecos/XCompose` e commita — senão a mudança
+# se perde na próxima vez que este script rodar.
 #
 # O que ele NÃO faz, cada um por um motivo:
 #   - não instala variante XKB nem mexe no evdev.xml (aqui é us(intl) de fábrica)

@@ -249,10 +249,14 @@ Quem monta esta máquina é **`setup-calecos.sh`**, não o `install.sh`. O
 `~/.XCompose` sem avisar — e a metade de teclado dele não é a desta máquina.
 
 - **Bateria: instalada e verificada.** Extensão do painel symlinkada e habilitada,
-  `battlog.service` ativo, regras udev em `/etc/udev/rules.d/`. O caminho do dado
-  foi verificado ponta a ponta: o serviço escreve `~/.cache/battlog-status` e o
-  `kmctl status` o lê. Os sete `/dev/hidraw*` passaram de `0600 root` para
-  `0660 plugdev`.
+  `battlog.service` ativo, regras udev em `/etc/udev/rules.d/`. Os sete
+  `/dev/hidraw*` passaram de `0600 root` para `0660 plugdev`.
+  **O que exatamente foi verificado:** o aperto de mão entre quem escreve e quem
+  lê — o serviço grava `~/.cache/battlog-status` e o `kmctl status` o traz de
+  volta. Só que **com carga vazia**: o arquivo tem só a linha `ts`, nenhuma linha
+  `dev`. O trecho que desenha aparelho nunca recebeu nada nesta máquina, e a
+  extensão nunca chegou a ser carregada pelo shell (ver o item da `shell-version`
+  acima). Nada disso é falha — é consequência do item seguinte.
 - **Teclado: `layout/calecos/`**, que é outro arranjo — `us(intl)` de fábrica, sem
   variante XKB, sem mexer no `evdev.xml`, Ctrl direito continua Ctrl, e um
   `XCompose` de três linhas que só acrescenta o `ç`. O porquê está em
