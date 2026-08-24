@@ -11,14 +11,18 @@ lista para registrar em lugar nenhum — a descoberta varre esta pasta.
 
 ```python
 NAME = "Attack Shark K86"        # nome para humano
-KIND = "keyboard"                # keyboard | mouse
-IDS  = ("00003151:00004011",)    # HID_ID como aparece no uevent do hidraw
+KIND = "keyboard"                # keyboard | mouse | headset
+IDS  = ("00003151:00004011",)    # identificador; ver "dois transportes" abaixo
 CAPS = ("battery",)              # o que este modelo faz DE VERDADE
 WONT = {"light": "por que não, em uma frase"}   # opcional
 
-def find() -> "/dev/hidrawN" | None
+def find() -> handle | None      # o que o battery() precisa para falar com ele
 def battery(path, wait=0) -> Reading(pct, charging, raw) | None
 ```
+
+O que o `find()` devolve é **opaco**: quem consome só o repassa ao `battery()`.
+No lado HID é um `/dev/hidrawN`; no lado Bluetooth, um object path do BlueZ.
+Não presuma que é um arquivo.
 
 `battery` é obrigatório; o resto é opcional e só existe se estiver em `CAPS`.
 As funções de controle recebem `path` e um `dry=False`, e devolvem
@@ -85,11 +89,30 @@ que o próprio aparelho mostra.
 | `delux_m900pro` | Delux M900Pro | mouse | bateria |
 | `freewolf_f75` | FreeWolf F75 | teclado | bateria, luz, cor, remap, sono |
 | `ajazz_aj139` | AJAZZ AJ139 | mouse | bateria |
+| `jbl_wave_buds_2` | JBL Wave Buds 2 | fone | bateria |
 
 O F75 e o AJ139 saíram da mesa em 2026-08-07 e não têm como ser testados ao
 vivo aqui — o que dá para verificar sem eles está no `selftest`, em asserts de
 bytes de pacote e de parser. Do M800 PRO, `battery` e `rgb` foram executados
 contra o hardware; `sleep` e `remap` estão no mesmo regime de assert.
+
+## Dois transportes
+
+- **HID** (`find_iface`): quatro dos modelos. `IDS` são `HID_ID` como aparecem
+  no uevent do hidraw. O trabalho de decodificar o frame é nosso, e é onde mora
+  a engenharia reversa.
+- **Bluetooth** (`find_bluez`): o BlueZ já publica a bateria normalizada em
+  `org.bluez.Battery1`, então `IDS` são pedaços de `Modalias`
+  (`v0ECBp2100` de `bluetooth:v0ECBp2100d001F` — vendor e produto, sem o `d` de
+  release, que muda com firmware). Não há frame, e `Reading.raw` fica `b""`.
+
+A divisão é a mesma nos dois: **o pacote sabe o transporte, o diretório sabe
+qual aparelho é.** Um segundo fone é um diretório de 20 linhas com um `Modalias`
+diferente, porque não há conhecimento de modelo para guardar.
+
+Falar D-Bus em stdlib puro não é razoável, então o lado Bluetooth chama o
+`busctl` — que vem com o systemd, não é pacote Python. Sem ele, ou com o
+bluetoothd parado, `find_bluez` devolve `None` e o resto do repo não se abala.
 
 ## Dois jeitos de ler bateria, e como saber qual é o seu
 

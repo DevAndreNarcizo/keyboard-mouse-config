@@ -1,9 +1,9 @@
 {
   "uuid": "battlog@victor",
   "name": "battlog",
-  "description": "Bateria do teclado e do mouse no painel. Lê o cache que o `kmctl probe` do cron escreve; não fala com o hardware. Qual modelo aparece é decisão do lado Python (devices.pick).",
+  "description": "Bateria do teclado, do mouse e do fone Bluetooth no painel. Lê o cache que o `kmctl probe` do cron escreve; não fala com o hardware. Qual modelo aparece em cada categoria é decisão do lado Python (devices.pick), e categoria sem aparelho não aparece.",
   "shell-version": [
     "46"
   ],
-  "version": 1
+  "version": 2
 }

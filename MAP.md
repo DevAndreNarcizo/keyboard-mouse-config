@@ -141,6 +141,21 @@ não tem bateria) e o mouse é um **Delux M800 PRO** por receptor 2.4G.
   carrega, mas não enumera nada — zero evento USB. Cabo, header do painel
   frontal ou firmware, não se sabe.
 
+### Fone JBL Wave Buds 2, no mesmo painel
+
+Entrou junto, e não custou engenharia reversa: o BlueZ publica a bateria em
+`org.bluez.Battery1` e o `bluetoothctl` concorda com o `upower` (90% no teste).
+Preferimos o BlueZ porque o UPower cacheia — estava 44 min atrasado na medição.
+
+Isso acrescentou a categoria `headset` em `devices.KINDS` e o segundo transporte
+(`find_bluez`). A extensão do painel deixou de ter as categorias no código: agora
+lê as que o `battlog-status` traz, então um quarto aparelho não pede mexer em JS.
+
+Efeito colateral bem-vindo: **categoria sem aparelho some do painel** em vez de
+mostrar `—` para sempre. Nesta máquina o ícone de teclado desapareceu, que é o
+certo — o Dell é com fio. `—` agora só aparece quando o cron morre, que é
+justamente o caso que precisa ser visível.
+
 ## Não ativo
 
 - `checkpoints/01..06` — experimentos de remap de 2026-08-05 (aspas no `` ` ``, dead keys na

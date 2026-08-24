@@ -116,10 +116,16 @@ def battery(path, wait=0):
         os.close(fd)
 
 
+# Byte 19: NÃO é booleano. Foram vistos três valores em 3h de log — 0 sem cabo,
+# 1 carregando, e 2 só depois de bater 100% (provavelmente "carga completa").
+# Valor fora desses três é estado desconhecido, e aí é `None`: melhor não dizer.
+CARGA = {0: 0, 1: 1, 2: 1}
+
+
 def parse(frame):
     """`0c 01 20 00 SS 01 10 00 'M802' … PP CH …` -> Reading.
 
-    Byte 18 é o percentual e o 19 a flag de carga. Três coisas casam antes de
+    Byte 18 é o percentual e o 19 o estado de carga. Três coisas casam antes de
     acreditar no byte 18, porque este é um canal de request/response e uma
     resposta velha ou de outro opcode tem o mesmo tamanho:
 
@@ -127,6 +133,10 @@ def parse(frame):
       aparelho ou com o buffer do dongle?" que o K86 obrigou a aprender;
     - bytes 8..11 são o ASCII `M802`, com que o mouse assina o frame;
     - o percentual tem que estar em 1..100.
+
+    **O percentual não vale enquanto carrega** — ver PROTOCOL.md. Ele empaca e
+    depois salta (medido: 90 min cravado em 64%, depois +30 de uma vez). O `raw`
+    guarda o frame inteiro, então isso é reanalisável.
     """
     if len(frame) < 20:
         return None
@@ -136,7 +146,7 @@ def parse(frame):
         return None
     if not 1 <= frame[18] <= 100:
         return None
-    return Reading(frame[18], 1 if frame[19] else 0, bytes(frame))
+    return Reading(frame[18], CARGA.get(frame[19]), bytes(frame))
 
 
 def _packet(kind, seq, fields):

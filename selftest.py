@@ -10,12 +10,12 @@ import time
 import battery
 import devices
 from devices import (ajazz_aj139, attackshark_k86, delux_m800pro,
-                     delux_m900pro, freewolf_f75)
+                     delux_m900pro, freewolf_f75, jbl_wave_buds_2)
 
 
 def contrato():
     n = devices.check()
-    assert n >= 5, f"esperava ao menos os 5 modelos de casa, achei {n}"
+    assert n >= 6, f"esperava ao menos os 6 modelos de casa, achei {n}"
     return f"contrato ok em {n} modelos"
 
 
@@ -53,6 +53,14 @@ def parsers():
     r = delux_m800pro.parse(real)
     assert (r.pct, r.charging) == (58, 0), r
     assert r.raw == real, "raw tem que guardar o frame inteiro"
+    # byte 19 nao e booleano: 0 sem cabo, 1 carregando, 2 visto so a 100%.
+    # Valor fora dos tres e estado desconhecido -> None, nao um palpite.
+    for b19, esperado in ((0, 0), (1, 1), (2, 1), (3, None), (0xff, None)):
+        f = bytearray(real)
+        f[19] = b19
+        assert delux_m800pro.parse(bytes(f)).charging is esperado \
+            or delux_m800pro.parse(bytes(f)).charging == esperado, \
+            f"byte19={b19} deu {delux_m800pro.parse(bytes(f)).charging}"
     for nome, mexe in (
             ("opcode nao ecoado", {2: 0x21}),
             ("sem a assinatura M802", {8: 0x00}),
@@ -168,6 +176,36 @@ def pacotes_m800pro():
     return "pacotes do M800 PRO batem com o driver de referencia"
 
 
+def bluetooth():
+    """O matcher do lado Bluetooth, sem precisar de Bluetooth ligado.
+
+    `bluez_match` e separada de `find_bluez` justamente para isto: e funcao
+    pura sobre o dicionario que o BlueZ devolve.
+    """
+    def obj(connected=True, modalias="bluetooth:v0ECBp2100d001F", bateria=True):
+        d = {"org.bluez.Device1": {"Connected": connected, "Modalias": modalias}}
+        if bateria:
+            d["org.bluez.Battery1"] = {"Percentage": 90}
+        return {"/org/bluez/hci0/dev_X": d}
+
+    ids = jbl_wave_buds_2.IDS
+    assert devices.bluez_match(obj(), ids) == "/org/bluez/hci0/dev_X"
+    # pareado mas desconectado nao conta: continua no BlueZ e sem bateria
+    assert devices.bluez_match(obj(connected=False), ids) is None
+    # conectado sem Battery1 tambem nao: mostraria "plugado" sem numero
+    assert devices.bluez_match(obj(bateria=False), ids) is None
+    # outro aparelho conectado nao vira este modelo
+    assert devices.bluez_match(obj(modalias="bluetooth:v1234p5678d0001"),
+                               ids) is None
+    # o `d` do modalias e release de firmware: mudar ele NAO deve quebrar o match
+    assert devices.bluez_match(obj(modalias="bluetooth:v0ECBp2100d9999"),
+                               ids) == "/org/bluez/hci0/dev_X"
+    assert devices.bluez_match({}, ids) is None
+    # sem falar com o BlueZ, tudo devolve vazio em vez de estourar
+    assert devices.bluez_objects.__doc__ and devices._busctl("nao-existe") is None
+    return "matcher do Bluetooth ok"
+
+
 def analise():
     def s(*seqs):
         return [(i, bytes(b)) for i, b in enumerate(seqs)]
@@ -205,8 +243,8 @@ def banco():
 
 
 def main():
-    for f in (contrato, parsers, pacotes_f75, pacotes_m800pro, analise,
-              banco):
+    for f in (contrato, parsers, pacotes_f75, pacotes_m800pro, bluetooth,
+              analise, banco):
         print(f"  {f():.<60} ok")
     print("selftest ok")
     return 0

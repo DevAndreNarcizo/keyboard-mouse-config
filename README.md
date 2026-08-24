@@ -2,7 +2,7 @@
 
 Configuração de teclado e mouse que eu carrego entre máquinas: um layout
 ANSI/ISO 75% que digita como um ABNT2, leitura de bateria dos periféricos sem
-fio, um widget de painel com os dois percentuais, e as ferramentas de linha de
+fio, um widget de painel com os percentuais, e as ferramentas de linha de
 comando que sobraram de engenharia reversa.
 
 Ubuntu/GNOME em X11. Python 3 puro — nenhuma dependência fora da stdlib.
@@ -76,10 +76,17 @@ ainda) está em [`devices/README.md`](devices/README.md).
 | `delux_m900pro` | Delux M900Pro | mouse | bateria |
 | `freewolf_f75` | FreeWolf F75 | teclado | bateria, luz, cor por tecla, remap, sono |
 | `ajazz_aj139` | AJAZZ AJ139 | mouse | bateria |
+| `jbl_wave_buds_2` | JBL Wave Buds 2 | fone | bateria |
 
 O K86 e o M900Pro são o hardware da mesa original; o M800 PRO entrou em
 2026-08-24 noutra máquina; o F75 e o AJ139 saíram em 2026-08-07 e continuam
 suportados.
+
+O JBL entrou em 2026-08-24 e é o primeiro aparelho **não-HID**: quem lê a
+bateria dele é o BlueZ, não este repo. Isso acrescentou uma categoria
+(`headset`, ao lado de `keyboard` e `mouse`) e um segundo transporte —
+`find_bluez` ao lado do `find_iface`. O diretório do modelo guarda só o
+`Modalias`, que é o análogo Bluetooth do VID:PID; não há byte para descobrir.
 
 O M800 PRO foi o primeiro **mouse** com caps de controle, e isso obrigou a
 mudar o despacho do `kmctl`: `kmctl rgb`/`sleep`/`key` escolhiam sempre um

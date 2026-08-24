@@ -9,8 +9,10 @@ O contrato está em `devices/README.md`.
 import collections
 import glob
 import importlib
+import json
 import os
 import pkgutil
+import subprocess
 import sys
 
 # O que uma leitura de bateria devolve. `raw` é o frame cru (b"" se o modelo não
@@ -19,7 +21,7 @@ import sys
 Reading = collections.namedtuple("Reading", "pct charging raw")
 
 CONFIG = os.path.expanduser("~/.config/keyboard-mouse.conf")
-KINDS = ("keyboard", "mouse")
+KINDS = ("keyboard", "mouse", "headset")
 
 
 def find_iface(ids, writable=False, at_start=False):
@@ -51,6 +53,94 @@ def find_iface(ids, writable=False, at_start=False):
             continue
         return "/dev/" + os.path.basename(os.path.dirname(d))
     return None
+
+
+# ---------------------------------------------------------------- Bluetooth
+#
+# O segundo transporte. Aqui não há engenharia reversa: o BlueZ já normaliza a
+# bateria de qualquer aparelho que exponha `org.bluez.Battery1`, então o que mora
+# no diretório do modelo é só o identificador — o `Modalias`, que é o análogo
+# Bluetooth do VID:PID. É a mesma divisão do lado HID: `find_iface` sabe o
+# transporte, o diretório sabe qual aparelho é.
+#
+# Falar D-Bus em stdlib puro não é razoável, então isto chama o `busctl`, que vem
+# com o systemd — não é pacote Python, é uma CLI que está em qualquer Ubuntu. Se
+# ela não existir, ou o bluetoothd estiver parado, tudo aqui devolve vazio e o
+# resto do repo segue funcionando.
+
+_BLUEZ_CACHE = []  # memo por processo; o kmctl é one-shot, então não envelhece
+
+
+def _busctl(*args):
+    try:
+        out = subprocess.run(("busctl", "--json=short") + args,
+                             capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    try:
+        return json.loads(out.stdout)
+    except ValueError:
+        return None
+
+
+def bluez_objects(refresh=False):
+    """{path: {interface: {prop: valor}}} de tudo que o BlueZ conhece. {} se
+    não der para falar com ele."""
+    if _BLUEZ_CACHE and not refresh:
+        return _BLUEZ_CACHE[0]
+    got = _busctl("call", "org.bluez", "/",
+                  "org.freedesktop.DBus.ObjectManager", "GetManagedObjects")
+    out = {}
+    try:
+        for path, ifaces in got["data"][0].items():
+            out[path] = {i: {k: v["data"] for k, v in props.items()}
+                         for i, props in ifaces.items()}
+    except (TypeError, KeyError, IndexError):
+        out = {}
+    _BLUEZ_CACHE[:] = [out]
+    return out
+
+
+def bluez_match(objects, ids):
+    """path do aparelho **conectado** cujo Modalias casa com `ids`, e que
+    reporta bateria. None se não estiver conectado.
+
+    `ids` são pedaços de Modalias, ex: `"v0ECBp2100"` para
+    `bluetooth:v0ECBp2100d001F` — vendor e produto, sem o `d` de device
+    release, que muda com revisão de firmware.
+
+    Separada de `find_bluez` de propósito: é função pura, então o selftest a
+    testa sem precisar de Bluetooth ligado.
+    """
+    for path in sorted(objects):
+        dev = objects[path].get("org.bluez.Device1")
+        if not dev or not dev.get("Connected"):
+            continue
+        modalias = dev.get("Modalias", "")
+        if not any(i in modalias for i in ids):
+            continue
+        if "org.bluez.Battery1" not in objects[path]:
+            continue
+        return path
+    return None
+
+
+def find_bluez(ids):
+    """path do BlueZ desse aparelho, se estiver conectado agora."""
+    return bluez_match(bluez_objects(), ids)
+
+
+def bluez_pct(path):
+    """Percentual que o BlueZ reporta, ou None."""
+    got = _busctl("get-property", "org.bluez", path,
+                  "org.bluez.Battery1", "Percentage")
+    try:
+        pct = int(got["data"])
+    except (TypeError, KeyError, ValueError):
+        return None
+    return pct if 0 <= pct <= 100 else None
 
 
 def modules():
@@ -131,7 +221,8 @@ def check():
         assert isinstance(mod.NAME, str) and mod.NAME, f"{onde}: falta NAME"
         assert mod.KIND in KINDS, f"{onde}: KIND deve ser um de {KINDS}"
         assert mod.IDS and all(isinstance(i, str) for i in mod.IDS), \
-            f"{onde}: IDS deve ser uma tupla de HID_ID"
+            f"{onde}: IDS deve ser uma tupla de identificadores (HID_ID no " \
+            f"lado HID, pedaço de Modalias no lado Bluetooth)"
         assert "battery" in mod.CAPS, f"{onde}: todo modelo precisa de battery"
         for cap in mod.CAPS:
             assert callable(getattr(mod, cap, None)), \
