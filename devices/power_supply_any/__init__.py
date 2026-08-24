@@ -34,7 +34,19 @@ def _ler(base, nome):
 
 # bInterfaceProtocol da classe HID: é o que o próprio aparelho declara ser, e
 # vale mais que adivinhar pelo nome — "MX Master 3" não tem a palavra "mouse".
-PROTO_KIND = {"1": "keyboard", "2": "mouse"}
+#
+# **O sysfs preenche com zero à esquerda**: o arquivo contém "02", não "2". A
+# primeira versão disto comparava string crua e por isso nunca casava — e o teste
+# passava porque eu havia escrito "2" nele, ou seja o teste guardava a minha
+# suposição em vez do formato real. Daí converter para int.
+PROTO_KIND = {1: "keyboard", 2: "mouse"}
+
+
+def _proto(texto):
+    try:
+        return int(texto, 10)
+    except (TypeError, ValueError):
+        return None
 
 
 def kind_por_nome(texto):
@@ -56,7 +68,7 @@ def kind_de(base, nome=""):
     """
     caminho = os.path.realpath(base)
     for _ in range(6):  # power_supply -> hid -> interface USB, com folga
-        proto = _ler(caminho, "bInterfaceProtocol")
+        proto = _proto(_ler(caminho, "bInterfaceProtocol"))
         if proto in PROTO_KIND:
             return PROTO_KIND[proto]
         pai = os.path.dirname(caminho)

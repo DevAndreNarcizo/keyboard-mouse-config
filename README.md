@@ -100,11 +100,12 @@ Três estados, e a diferença entre os dois últimos é de propósito:
 Rode `./kmctl scan` com ele ligado. A resposta é **depende da marca**, e o scan
 diz em qual dos três caminhos o seu caiu:
 
-| caminho | funciona sozinho? | cobre |
+| caminho | sozinho? | cobre |
 |---|---|---|
-| **Bluetooth** | **sim** | qualquer fone, mouse, teclado ou controle BT cujo firmware reporte bateria — a maioria dos modernos |
-| **Página de bateria do HID** | **sim** | quem segue o padrão: o kernel cria a entrada em `/sys/class/power_supply` e a fonte genérica lista. Muito teclado e mouse de receptor 2.4G |
-| **Protocolo de fabricante** | **não** | o resto: a bateria só sai por opcode que ninguém documentou. Precisa de um diretório em `devices/` |
+| **Bluetooth** (`bluez_any`) | **sim** | qualquer fone, mouse, teclado ou controle BT cujo firmware reporte bateria — a maioria dos modernos |
+| **Página de bateria do HID** (`power_supply_any`) | **sim** | quem segue o padrão: o kernel cria a entrada em `/sys/class/power_supply`. Inclui Logitech Unifying/Bolt, que o `hid-logitech-hidpp` já expõe |
+| **Família de fabricante conhecida** (`vendor_probe`) | **sim** | hoje a família Delux/TeLink (report `0x0c`), comum em mouse sem fio barato. É por **protocolo**, não por modelo |
+| **Protocolo de fabricante novo** | **não** | o resto: a bateria só sai por opcode que ninguém documentou. Precisa de um diretório em `devices/` |
 
 **Attack Shark**: a marca está aqui, mas só como **teclado** (`attackshark_k86`).
 Não há módulo de mouse dela. Os IDs de hidraw dos mouses R5 Ultra (`373e:0046/47`)
@@ -112,7 +113,15 @@ e X11 (`1d57:fa60/fa55`) já entraram nas regras udev — só a permissão, sem 
 — porque a regra de VID `1d57` prendia o PID do receptor Delux e não os cobriria.
 Nenhum foi testado aqui.
 
-O terceiro caso não é raro em periférico de jogo barato — é onde caem o Delux
+O terceiro caminho é o que mais aproxima do "só conectar": a sonda não conhece
+modelo, conhece **protocolo**, então qualquer aparelho da família aparece com o
+modelo lido do próprio frame. Ela **escreve** em aparelho desconhecido, então só
+existe para família cuja resposta se identifica — a do K86 valida apenas
+`1 <= byte[1] <= 100`, sem assinatura, e sondá-la daria número para qualquer
+coisa. Está deliberadamente fora, e o motivo está em
+[`devices/vendor_probe/`](devices/vendor_probe/__init__.py).
+
+O último caso não é raro em periférico de jogo barato — é onde caem o Delux
 M800 PRO e o Attack Shark K86 daqui, e é a razão de este repo existir. Medido no
 M800 PRO: o descritor HID dele **não declara bateria nenhuma**, então o kernel não
 tem como saber que existe bateria ali. Só o opcode `0x20` do fabricante sabe.

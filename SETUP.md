@@ -114,16 +114,22 @@ Se um aparelho não aparece, `./kmctl scan` diz em qual dos três caminhos ele c
 
 ### Três caminhos para a bateria aparecer
 
-| caminho | funciona sozinho? | cobre |
+| caminho | sozinho? | cobre |
 |---|---|---|
 | **Bluetooth** (`bluez_any`) | **sim** | qualquer fone, mouse, teclado ou controle BT cujo firmware reporte bateria |
-| **Página de bateria do HID** (`power_supply_any`) | **sim** | quem segue o padrão: o kernel cria a entrada em `/sys/class/power_supply` |
-| **Protocolo de fabricante** (diretório em `devices/`) | **não** | o resto — só sai por opcode que ninguém documentou |
+| **Página de bateria do HID** (`power_supply_any`) | **sim** | quem segue o padrão; inclui Logitech Unifying/Bolt via `hid-logitech-hidpp` |
+| **Família conhecida** (`vendor_probe`) | **sim** | a família Delux/TeLink (report `0x0c`), comum em mouse barato — por protocolo, não por modelo |
+| **Fabricante novo** (diretório em `devices/`) | **não** | o resto — só sai por opcode que ninguém documentou |
 
 O caminho 3 é comum em periférico de jogo barato. Medido no M800 PRO: **o
 descritor HID dele não declara bateria nenhuma**, então o kernel não tem como
 saber que existe bateria ali. Só o opcode `0x20` do fabricante sabe. É a razão de
 este repo existir.
+
+**Zero configuração é o padrão, não a exceção**: dos quatro caminhos, três não
+pedem nada. Escrever um diretório de modelo só é necessário no quarto — ou quando
+o aparelho tem caps de escrita (cor, remap, sono) que uma fonte genérica não
+alcança.
 
 ### Duas coisas em `devices/`
 

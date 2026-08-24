@@ -20,6 +20,7 @@ import glob
 import os
 
 import devices
+from devices import vendor_probe
 
 # Página 0x06 (Generic Device Controls) + usage 0x20 (Battery Strength). É o que
 # faz o kernel criar power_supply sozinho — ver hidinput_setup_battery no kernel.
@@ -55,13 +56,15 @@ def hid_fisicos():
         g = grupos.setdefault(phys, {
             "nome": info.get("HID_NAME", "?"), "hid_id": info.get("HID_ID", ""),
             "bat_hid": False, "vendor": False, "power_supply": False,
-            "ifaces": [],
+            "familia_conhecida": False, "ifaces": [],
         })
         g["ifaces"].append(os.path.basename(os.path.dirname(d)))
         if all(p in desc for p in BAT_HID):
             g["bat_hid"] = True
         if any(p in desc for p in VENDOR):
             g["vendor"] = True
+        if vendor_probe.declara_canal(desc):
+            g["familia_conhecida"] = True
         if glob.glob(os.path.join(d, "power_supply", "*")):
             g["power_supply"] = True
     return grupos
@@ -99,10 +102,15 @@ def varrer():
         elif any(i in reivindicados for i in (hid_id,)):
             out.append((g["nome"], detalhe,
                         "tem diretório de modelo, mas não está respondendo agora"))
+        elif g["familia_conhecida"]:
+            out.append((g["nome"], detalhe,
+                        "declara o canal da família Delux/TeLink, mas não "
+                        "respondeu à sonda — o protocolo dele é outro. "
+                        "Candidato a diretório em devices/"))
         elif g["vendor"]:
             out.append((g["nome"], detalhe,
-                        "NÃO aparece — tem canal de fabricante e não declara "
-                        "bateria: candidato a diretório em devices/ "
+                        "NÃO aparece — tem canal de fabricante de família "
+                        "desconhecida: candidato a diretório em devices/ "
                         "(precisa de engenharia reversa)"))
         else:
             out.append((g["nome"], detalhe,

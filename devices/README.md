@@ -128,6 +128,12 @@ contra o hardware; `sleep` e `remap` estão no mesmo regime de assert.
 - **HID** (`find_iface`): quatro dos modelos. `IDS` são `HID_ID` como aparecem
   no uevent do hidraw. O trabalho de decodificar o frame é nosso, e é onde mora
   a engenharia reversa.
+- **Família de fabricante** (`vendor_probe`): sonda a família Delux/TeLink
+  (report `0x0c`, opcode `0x20`) em qualquer interface que **declare** esse
+  report. Cobre por protocolo, não por modelo, e o modelo sai do próprio frame.
+  Só existe para família cuja resposta se identifica — leia o cabeçalho do módulo
+  antes de acrescentar outra, porque sonda que escreve em aparelho desconhecido
+  sem assinatura forte inventa percentual.
 - **Bluetooth** (`bluez_any`): o BlueZ já publica a bateria normalizada em
   `org.bluez.Battery1`, então **não há diretório de modelo nenhum** deste lado —
   a fonte lista o que está conectado e pronto. Não há frame, e `Reading.raw` fica

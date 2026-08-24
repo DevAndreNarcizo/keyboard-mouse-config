@@ -138,11 +138,12 @@ def cmd_scan(args):
         print(f"{nome:{largura}}  {detalhe}")
         print(f"{'':{largura}}  -> {veredito}")
     print()
-    print("Três caminhos para a bateria aparecer, em ordem de sorte:")
-    print("  1. Bluetooth       — sozinho, se o firmware reportar")
-    print("  2. bateria no HID  — sozinho, o kernel cria o power_supply")
-    print("  3. fabricante      — só com um diretório em devices/, ou seja")
-    print("                       engenharia reversa (veja devices/README.md)")
+    print("Quatro caminhos para a bateria aparecer, em ordem de sorte:")
+    print("  1. Bluetooth        — sozinho, se o firmware reportar")
+    print("  2. bateria no HID   — sozinho, o kernel cria o power_supply")
+    print("  3. família conhecida — sozinho, pela sonda (hoje: Delux/TeLink 0x0c)")
+    print("  4. fabricante novo  — só com um diretório em devices/, ou seja")
+    print("                        engenharia reversa (veja devices/README.md)")
     return 0
 
 

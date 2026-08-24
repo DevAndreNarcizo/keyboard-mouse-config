@@ -14,14 +14,15 @@ import battery
 import devices
 import wake
 from devices import (ajazz_aj139, attackshark_k86, bluez_any, delux_m800pro,
-                     delux_m900pro, freewolf_f75, power_supply_any)
+                     delux_m900pro, freewolf_f75, power_supply_any,
+                     vendor_probe)
 
 
 def contrato():
     n = devices.check()
-    assert n >= 7, f"esperava ao menos 5 modelos + 2 fontes, achei {n}"
+    assert n >= 8, f"esperava ao menos 5 modelos + 3 fontes, achei {n}"
     fontes = [m.ID for m in devices.modules() if getattr(m, "SOURCE", False)]
-    assert len(fontes) >= 2, f"esperava as fontes genericas, achei {fontes}"
+    assert len(fontes) >= 3, f"esperava as fontes genericas, achei {fontes}"
     return f"contrato ok em {n} modulos ({len(fontes)} fontes)"
 
 
@@ -327,12 +328,19 @@ def fontes_genericas():
         assert power_supply_any.kind_de(d, "MX Master 3") == "other"
         # com o proto declarado, ele ganha do nome — inclusive contra um nome
         # que apontaria para o lado errado
-        escreve(bInterfaceProtocol="2")
+        # "02" e nao "2": e o que o sysfs realmente escreve. A versao anterior
+        # deste teste usava "2" e por isso passava com o codigo quebrado.
+        escreve(bInterfaceProtocol="02")
         assert power_supply_any.kind_de(d, "Teclado Sem Fio") == "mouse", \
             "o que o aparelho declara tem que ganhar do nome"
-        escreve(bInterfaceProtocol="1")
+        escreve(bInterfaceProtocol="01")
         assert power_supply_any.kind_de(d, "MX Master 3") == "keyboard"
-        escreve(bInterfaceProtocol="0")  # 0 = nenhum dos dois
+        # aceitar as duas grafias: nao ha promessa de padding no sysfs
+        escreve(bInterfaceProtocol="2")
+        assert power_supply_any.kind_de(d, "Teclado") == "mouse"
+        escreve(bInterfaceProtocol="00")  # 0 = nenhum dos dois
+        assert power_supply_any.kind_de(d, "Algum Mouse") == "mouse"
+        escreve(bInterfaceProtocol="lixo")
         assert power_supply_any.kind_de(d, "Algum Mouse") == "mouse"
         r = power_supply_any.battery(d)
         assert (r.pct, r.charging, r.raw) == (55, 0, b""), r
@@ -402,6 +410,47 @@ def despertadores():
     return "filtros dos despertadores ok"
 
 
+def sonda_de_familia():
+    """A validacao da sonda generica: e o que impede ela de inventar percentual.
+
+    Ela ESCREVE em aparelho desconhecido, entao as guardas sao a coisa mais
+    importante do modulo. Quatro condicoes independentes, e cada uma testada
+    quebrada em separado.
+    """
+    real = bytes.fromhex("0c 01 20 00 03 01 10 00 4d 38 30 32 25 01 00 70 04"
+                         " ff 3a 00")
+    assert vendor_probe.valida(real, 3) == ("M802", 58)
+    # seq: e o que distingue esta resposta da anterior no mesmo buffer
+    assert vendor_probe.valida(real, 4) is None
+    for nome, off, val in (("opcode", 2, 0x21), ("percentual 0", 18, 0),
+                           ("percentual 101", 18, 101)):
+        b = bytearray(real); b[off] = val
+        assert vendor_probe.valida(bytes(b), 3) is None, nome
+    # tag ilegivel: e a assinatura de modelo, e sem ela sobra pouca evidencia
+    for tag in (b"\x00\x00\x00\x00", b"\xff\xfe\xfd\xfc"):
+        b = bytearray(real); b[8:12] = tag
+        assert vendor_probe.valida(bytes(b), 3) is None, tag
+    assert vendor_probe.valida(bytes(20), 1) is None, "frame de zeros"
+    assert vendor_probe.valida(b"", 1) is None
+    assert vendor_probe.valida(real[:19], 3) is None, "frame curto"
+
+    # a pre-condicao estrutural: sem o report 0x0c declarado, nada e enviado
+    assert vendor_probe.declara_canal(bytes.fromhex("06 00 ff 09 01 a1 01 85 0c"
+                                                    " 09 01 b1 02 c0"))
+    assert not vendor_probe.declara_canal(b""), "descritor vazio"
+    # tem Feature mas o report id e outro
+    assert not vendor_probe.declara_canal(bytes.fromhex("85 05 b1 02"))
+    # tem o report 0x0c mas nenhum Feature
+    assert not vendor_probe.declara_canal(bytes.fromhex("85 0c 81 02"))
+
+    # modelo com diretorio proprio nao e sondado: escrever num aparelho que ja
+    # funciona nao tem upside, e o diretorio sabe fazer melhor
+    reivindicados = vendor_probe._reivindicados()
+    assert delux_m800pro.IDS[0] in reivindicados, \
+        "o ID do M800 PRO tem que estar reivindicado"
+    return "guardas da sonda de familia ok"
+
+
 def analise():
     def s(*seqs):
         return [(i, bytes(b)) for i, b in enumerate(seqs)]
@@ -457,8 +506,8 @@ def banco():
 
 def main():
     for f in (contrato, parsers, pacotes_f75, pacotes_m800pro, percentual,
-              eco_do_seq, fontes_genericas, deducao, batimento,
-              despertadores, analise, banco):
+              eco_do_seq, fontes_genericas, sonda_de_familia, deducao,
+              batimento, despertadores, analise, banco):
         print(f"  {f():.<60} ok")
     print("selftest ok")
     return 0
