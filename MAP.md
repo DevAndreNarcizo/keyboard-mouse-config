@@ -242,16 +242,40 @@ Consequências, cada uma medida aqui — menos onde estiver dito que não:
   dongle para os dois aparelhos. O `1d57:fa61` também declara interface de
   teclado, mas todos os seus `input*` se chamam "Beken USB Gaming Mouse": é o
   mouse, com o canal de teclado que mouse de jogo usa para macro.
-- **Só a metade da bateria está instalada, e ela mesma está pela metade.**
-  Extensão do painel e `battlog.service` ativos — o caminho do dado foi verificado
-  ponta a ponta: o serviço escreve `~/.cache/battlog-status` e o `kmctl status` o
-  lê. **As regras udev continuam pendentes**, porque `/etc/udev/rules.d/` pede
-  sudo com senha: nenhuma regra deste repo está instalada nesta máquina.
-- **A camada XKB não foi aplicada** (`victor(quotefix)`, `~/.XCompose`, os
-  `gsettings` de input-sources): o layout aqui é `us+intl`, e o `~/.XCompose`
-  desta máquina já tem conteúdo próprio — três linhas, com as sequências do `ç` —
-  que o `install.sh` sobrescreveria sem avisar. Aplicar a metade do teclado é
-  decisão à parte, e não tem relação nenhuma com a bateria.
+### O que foi montado aqui
+
+Quem monta esta máquina é **`setup-calecos.sh`**, não o `install.sh`. O
+`install.sh` faria as duas metades do victor — inclusive sobrescrever o
+`~/.XCompose` sem avisar — e a metade de teclado dele não é a desta máquina.
+
+- **Bateria: instalada e verificada.** Extensão do painel symlinkada e habilitada,
+  `battlog.service` ativo, regras udev em `/etc/udev/rules.d/`. O caminho do dado
+  foi verificado ponta a ponta: o serviço escreve `~/.cache/battlog-status` e o
+  `kmctl status` o lê. Os sete `/dev/hidraw*` passaram de `0600 root` para
+  `0660 plugdev`.
+- **Teclado: `layout/calecos/`**, que é outro arranjo — `us(intl)` de fábrica, sem
+  variante XKB, sem mexer no `evdev.xml`, Ctrl direito continua Ctrl, e um
+  `XCompose` de três linhas que só acrescenta o `ç`. O porquê está em
+  `layout/calecos/README.md`.
+- **Bluetooth continua desligado por escolha.** O `setup-calecos.sh` não o liga. O
+  caminho `bluez_any` fica inativo por consequência, e isso não é bug.
+
+### E mesmo assim: nenhum aparelho reporta bateria
+
+Com permissão em hidraw para os três, o `kmctl scan` continua colocando **todos no
+caminho 4**. O que já dá para afirmar:
+
+- o fone **tem** bateria e mesmo assim não a expõe: o kernel 7.0 não tem driver de
+  fabricante para o `03f0:0c9d`, ele cai em `hid_generic` e não cria
+  `power_supply` nenhum;
+- o mouse Attack Shark e o receptor combo não respondem à sonda de família, que
+  hoje só conhece o `0x0c` da Delux/TeLink.
+
+Ou seja: **fazer o painel mostrar um número aqui exige engenharia reversa**, não
+configuração. A ferramenta é `./kmctl raw`, e as regras udev que este commit
+acrescentou (`99-cx-2.4g-receiver.rules`, `99-hyperx-cloud3.rules`) existem
+justamente para que ela possa ser apontada para esses aparelhos. Até lá o painel
+mostra o widget vazio — que é o comportamento correto, não uma falha.
 
 ## Não ativo
 

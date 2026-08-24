@@ -1,0 +1,3 @@
+include "%L"
+<dead_acute> <C> : "Ç" Ccedilla
+<dead_acute> <c> : "ç" ccedilla

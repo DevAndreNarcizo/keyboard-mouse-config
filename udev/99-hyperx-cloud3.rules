@@ -1,0 +1,9 @@
+# HyperX Cloud III Wireless (HP, 03f0:0c9d) - acesso hidraw sem root.
+# Visto na maquina calecos em 2026-08-24. NAO ha modulo de modelo no repo e o
+# kernel 7.0 nao tem driver de fabricante para ele: o fone cai em hid_generic e
+# nao cria power_supply nenhum, entao nem o `power_supply_any` o enxerga.
+#
+# A regra existe porque o fone e o unico aparelho desta maquina que
+# comprovadamente TEM bateria, e sem permissao em hidraw nem da para apontar o
+# `kmctl raw` para ele e procurar o byte. E o caminho 4 do `kmctl scan`.
+KERNEL=="hidraw*", ATTRS{idVendor}=="03f0", ATTRS{idProduct}=="0c9d", MODE="0660", GROUP="plugdev", TAG+="uaccess"
