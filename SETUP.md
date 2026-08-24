@@ -168,6 +168,21 @@ Na desconexão o painel foi atualizado 0,7 s **antes** de o próprio `bluetoothc
 terminar. A reconexão é mais lenta porque o `Connected: true` chega primeiro e o
 `Battery1` só aparece depois, num `InterfacesAdded`.
 
+### Dois tipos de aparelho, e por que o `--wait` existe
+
+Os modelos se dividem em dois, e confundir os dois custou um bug:
+
+- **quem responde a pergunta** (M800 PRO, K86): o `battery()` escreve e lê. `wait`
+  não muda nada, a resposta é imediata.
+- **quem só se anuncia** (M900Pro, AJ139, F75): o `battery()` **espera** o
+  aparelho falar. Com `wait=0` o laço de espera não executa nem uma vez e o
+  aparelho devolve `None` **sempre** — fica invisível, e sem erro nenhum
+  aparecendo em lugar algum.
+
+O `watch` usa `--wait 3` por default. Medido: o M900Pro respondeu em 1,0 s
+estando em uso. Aparelho de anúncio parado não responde, e isso é correto —
+parado não gastou bateria, e o painel mantém o último valor conhecido.
+
 ### Duas cadências, de propósito
 
 O cache é reescrito quando as linhas de aparelho mudam **ou** a cada 5 min
@@ -260,6 +275,7 @@ Tudo aqui foi medido, não suposto.
 | `sem permissão em /dev/hidrawN` | falta a regra udev, ou você não está em `plugdev` (precisa relogar depois de entrar no grupo) |
 | erro de extensão | `journalctl --user -b \| grep -i battlog` |
 | serviço reiniciando | `journalctl --user -u battlog.service -n 50` |
+| **`kmctl battery` acha, mas o painel não mostra** | o serviço está com código antigo em memória, ou com `--wait` baixo demais para um aparelho de anúncio. `systemctl --user restart battlog.service` |
 
 Trocar de hardware não pede nada: desplugue um mouse e plugue outro, e se houver
 módulo ou fonte que o cubra ele aparece sozinho em segundos. Foi testado ao vivo

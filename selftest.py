@@ -451,6 +451,40 @@ def sonda_de_familia():
     return "guardas da sonda de familia ok"
 
 
+def presente_mas_calado():
+    """Aparelho presente que nao respondeu AGORA tem que continuar no cache.
+
+    E o invariante que o docstring do status_text promete ("mouse parado nao
+    gastou bateria") e que o watch quebrou por duas revisoes sem ninguem notar:
+    ele passava como presentes so quem tinha respondido, entao metade dos
+    modelos daqui -- os de anuncio -- desaparecia do painel sem erro nenhum.
+    """
+    con = battery.db_open(":memory:")
+    now = int(time.time())
+    falante = devices.Found(None, "falante", "Falante", "mouse", "/dev/a")
+    calado = devices.Found(None, "calado", "Calado", "mouse", "/dev/b")
+    novo = devices.Found(None, "novo", "Novo", "headset", "/dev/c")
+    con.execute("INSERT INTO battery VALUES (?,?,?,?)", (now, "calado", 77, None))
+    leituras = [(falante, devices.Reading(50, 0, b""))]
+
+    txt = battery.status_text(con, [falante, calado], leituras).splitlines()
+    assert len(txt) == 3, txt
+    assert txt[1] == "dev mouse falante 50 0 Falante", txt[1]
+    # veio do banco, nao da rodada: e o ponto
+    assert txt[2] == "dev mouse calado 77 - Calado", txt[2]
+
+    # presente, calado E sem historico nenhum nao entra: nao ha numero a dar
+    txt2 = battery.status_text(con, [falante, calado, novo], leituras).splitlines()
+    assert len(txt2) == 3, txt2
+    assert "novo" not in "".join(txt2)
+
+    # a leitura de agora GANHA do banco quando as duas existem
+    con.execute("INSERT INTO battery VALUES (?,?,?,?)", (now, "falante", 11, None))
+    txt3 = battery.status_text(con, [falante], leituras).splitlines()
+    assert txt3[1] == "dev mouse falante 50 0 Falante", txt3[1]
+    return "presente e calado mantem o ultimo valor"
+
+
 def analise():
     def s(*seqs):
         return [(i, bytes(b)) for i, b in enumerate(seqs)]
@@ -507,7 +541,7 @@ def banco():
 def main():
     for f in (contrato, parsers, pacotes_f75, pacotes_m800pro, percentual,
               eco_do_seq, fontes_genericas, sonda_de_familia, deducao,
-              batimento, despertadores, analise, banco):
+              batimento, presente_mas_calado, despertadores, analise, banco):
         print(f"  {f():.<60} ok")
     print("selftest ok")
     return 0

@@ -33,15 +33,19 @@ def db_open(path=DB):
     return con
 
 
-def ler_todos(wait=0, echo=print):
+def ler_todos(wait=0, echo=print, achados=None):
     """[(Found, Reading)] de tudo que respondeu agora. **Não toca no banco.**
 
     Separado do `probe` porque o `watch` lê muito mais vezes do que grava: o
     cache do painel quer o número de agora, o histórico não quer uma linha a
     cada 20 s.
+
+    `achados` pronto evita descobrir duas vezes. E **`wait` importa mais do que
+    parece**: metade dos modelos aqui é de anúncio, e para eles `wait=0` é o
+    mesmo que não perguntar — o laço de espera nem executa. Ver o `watch`.
     """
     out = []
-    for f in devices.present():
+    for f in (devices.present() if achados is None else achados):
         try:
             r = f.mod.battery(f.handle, wait)
         except PermissionError:
@@ -97,7 +101,7 @@ def linhas_de_aparelho(texto):
     return [l for l in texto.splitlines() if l.startswith("dev ")]
 
 
-def watch(interval=20, record=600, heartbeat=300, wait=0, keep=KEEP_DAYS,
+def watch(interval=20, record=600, heartbeat=300, wait=3, keep=KEEP_DAYS,
           db=DB, echo=print):
     """Mantém o cache do painel em dia até ser morto. É o que o serviço roda.
 
@@ -111,6 +115,16 @@ def watch(interval=20, record=600, heartbeat=300, wait=0, keep=KEEP_DAYS,
     fone aparece em menos de um segundo. **Percentual não fica mais rápido que o
     aparelho o reporta** — reler mais vezes não cria informação que ninguém
     mandou.
+
+    **`wait` não pode ser 0**, e isso custou um bug: metade dos modelos daqui é de
+    anúncio (M900Pro, AJ139, F75) e o `battery()` deles espera o aparelho falar.
+    Com `wait=0` o laço de espera não executa uma vez e eles devolvem None
+    sempre — ficam invisíveis, sem erro nenhum aparecendo. O default de 3 s é o
+    suficiente para quem está em uso: medido, o M900Pro respondeu em 1,0 s.
+
+    E os que não responderam **continuam na lista**, com o último valor conhecido.
+    Mouse parado não gastou bateria: apagá-lo do painel seria mentir mais que
+    repetir o número.
 
     O cache é gravado quando as **linhas de aparelho** mudam, ou a cada
     `heartbeat` segundos. As duas condições existem por motivos opostos e as duas
@@ -133,14 +147,30 @@ def watch(interval=20, record=600, heartbeat=300, wait=0, keep=KEEP_DAYS,
         echo(f"  despertador indisponível: {f}")
     calado = (lambda *_a, **_k: None)
     anteriores, ultimo_registro, ultima_escrita = None, 0.0, 0.0
+    # último valor que cada aparelho deu, por ident. É o que sustenta o aparelho
+    # de anúncio entre duas rodadas em que ele não falou — sem isto ele piscaria
+    # no painel a cada ciclo.
+    ultimos = {}
     try:
         while True:
-            leituras = ler_todos(wait, calado)
+            presentes = devices.present()
+            leituras = ler_todos(wait, calado, presentes)
+            for f, r in leituras:
+                ultimos[f.ident] = r
+            vivos = {f.ident for f in presentes}
+            # aparelho que saiu perde a memória: guardá-la faria o número dele
+            # reaparecer se voltasse, com valor velho e sem aviso
+            for ident in [i for i in ultimos if i not in vivos]:
+                del ultimos[ident]
+            conhecidos = [(f, ultimos[f.ident]) for f in presentes
+                          if f.ident in ultimos]
             agora = time.monotonic()
             if agora - ultimo_registro >= record:
+                # grava só o que respondeu AGORA: registrar valor lembrado com
+                # timestamp de agora fabricaria histórico
                 gravar(con, leituras, keep, calado)
                 ultimo_registro = agora
-            texto = status_text(con, [f for f, _ in leituras], leituras)
+            texto = status_text(con, presentes, conhecidos)
             linhas = linhas_de_aparelho(texto)
             mudou = linhas != anteriores
             if mudou or agora - ultima_escrita >= heartbeat:

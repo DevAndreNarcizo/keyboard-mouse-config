@@ -202,6 +202,11 @@ def main():
     wt.add_argument("--record", type=float, default=600,
                     help="segundos entre amostras no histórico (default: 600). "
                          "Gravar a cada leitura encheria o banco sem dizer nada")
+    wt.add_argument("--wait", type=float, default=3,
+                    help="segundos esperando cada aparelho de ANÚNCIO se "
+                         "anunciar (default: 3). Zero torna invisível todo "
+                         "modelo que não responde a pergunta — M900Pro, AJ139, "
+                         "F75")
     wt.add_argument("--heartbeat", type=float, default=300,
                     help="segundos entre gravações do cache mesmo sem mudança "
                          "(default: 300). É o batimento que diz ao painel que "
@@ -258,7 +263,7 @@ def main():
         return 0 if battery.probe(args.wait, args.keep) else 1
     if args.cmd == "watch":
         return battery.watch(args.interval, args.record, args.heartbeat,
-                             keep=args.keep)
+                             args.wait, keep=args.keep)
     if args.cmd == "status":
         con = battery.db_open()
         # uma descoberta só: imprimir o que foi gravado, não uma segunda leitura
