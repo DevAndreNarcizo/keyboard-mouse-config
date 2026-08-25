@@ -92,6 +92,32 @@ quando não há página vendor para escolher.
 própria investigação, quando um `udevadm trigger` reenumerou os aparelhos. O
 mouse saiu de `hidraw3` para `hidraw5`.
 
+## No cabo de carga, a bateria é ilegível — e isso é definitivo
+
+Medido em 2026-08-25, com o mouse a noite inteira no cabo:
+
+- **o dongle fica mudo.** 0 frames em 15 s, duas medições separadas. O driver de
+  referência do X11 já dizia: no modo cabo o mouse para de falar pelo rádio;
+- **as interfaces do cabo não têm canal de bateria.** Com o cabo plugado aparece
+  um segundo device USB (`1d57:fa61`, "Xenta USB Gaming Mouse") com **duas**
+  interfaces, de 75 B e 73 B: só teclado/mouse básico e um Output de LED.
+  **Nenhum report Feature, nenhuma página de fabricante.** Não há o que perguntar.
+
+Ou seja: enquanto carrega por cabo, o número não existe em canal nenhum. Está em
+`WONT` como `battery-no-cabo`. O módulo expõe `DICA` para o `kmctl battery` dizer
+isso a quem estranhar o silêncio — mas **não** implementa `estado()` para este
+caso, porque `estado()` é veredito e tiraria o mouse da lista; mouse calado há
+dois minutos deve manter o último valor, e é a janela do `LEITURA_VELHA` que
+decide.
+
+### Cuidado: o mesmo PID já apareceu com configurações USB diferentes
+
+Em 2026-08-24 o `fa61` tinha **quatro** interfaces, e uma delas (236 B) carregava
+o canal de status. Em 2026-08-25 o `fa61` apareceu com **duas**, sem canal
+nenhum. Mesmo VID:PID, configuração diferente. Por isso o módulo escolhe a
+interface pela **assinatura do descritor**, nunca pelo PID — e por isso não se
+pode inferir "está no cabo" da presença de um PID.
+
 ## O que não se sabe
 
 - **param1.** Aqui vale `0x02`. A tabela do driver de referência diz

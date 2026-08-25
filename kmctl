@@ -251,6 +251,13 @@ def cmd_battery(args):
                 except Exception:
                     porque = None
             motivo = porque or f"não respondeu em {args.wait:.0f}s"
+            # `DICA` é o que o módulo sabe sugerir sem afirmar. Separado do
+            # `estado()` de propósito: `estado()` é um veredito e o
+            # `status_text` age sobre ele (tira o aparelho da lista); a DICA é
+            # só texto para humano, e não muda decisão nenhuma.
+            dica = getattr(f.mod, "DICA", None)
+            if dica and porque is None:
+                motivo = f"{motivo}. {dica}"
             print(f"{f.kind:9} —  ({f.name}: {motivo})")
             continue
         carga = " carregando" if r.charging else ""

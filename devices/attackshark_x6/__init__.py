@@ -26,7 +26,15 @@ CAPS = ("battery",)
 WONT = {
     "charging": "o param1 não bate com a tabela de estados do driver de "
                 "referência; ver PROTOCOL.md",
+    "battery-no-cabo": "com o mouse no cabo de carga não há canal de bateria "
+                       "em lugar nenhum — medido; ver PROTOCOL.md",
 }
+
+# Texto para humano, não veredito: o `kmctl battery` o acrescenta à mensagem
+# quando não veio número. Não passa pelo `estado()`, que tiraria o aparelho da
+# lista — e mouse calado há dois minutos deve manter o último valor.
+DICA = ("Se estiver no cabo de carga, é o esperado: medido, o dongle fica mudo "
+        "e as interfaces do cabo não têm canal de bateria. Desplugue para ler.")
 
 REPORT = 0x03  # "Event Message" — sempre 0x03 nesta família
 DEVICE_ID = 0x10  # identifica o modelo; o X11 usa 0x55, e cada um tem o seu
