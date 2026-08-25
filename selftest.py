@@ -523,7 +523,54 @@ def presente_mas_calado():
     con.execute("INSERT INTO battery VALUES (?,?,?,?)", (now, "falante", 11, None))
     txt3 = battery.status_text(con, [falante], leituras).splitlines()
     assert txt3[1] == "dev mouse falante 50 0 Falante", txt3[1]
-    return "presente e calado mantem o ultimo valor"
+
+    # ... MAS o ultimo valor tem prazo. Fora da janela o aparelho sai da lista.
+    # Sem isto o painel afirmava 75% de um fone desligado e 10% de um mouse que
+    # passou a noite no carregador, com o servico em perfeito estado.
+    velho = devices.Found(None, "velho", "Velho", "mouse", "/dev/d")
+    con.execute("INSERT INTO battery VALUES (?,?,?,?)",
+                (now - battery.LEITURA_VELHA - 60, "velho", 42, None))
+    txt4 = battery.status_text(con, [velho], []).splitlines()
+    assert len(txt4) == 1 and "velho" not in "".join(txt4), txt4
+
+    # na borda de dentro ele continua valendo
+    con.execute("DELETE FROM battery WHERE device = 'velho'")
+    con.execute("INSERT INTO battery VALUES (?,?,?,?)",
+                (now - battery.LEITURA_VELHA + 60, "velho", 42, None))
+    txt5 = battery.status_text(con, [velho], []).splitlines()
+    assert txt5[1] == "dev mouse velho 42 - Velho", txt5
+
+    # e a palavra do modulo vence o historico: `estado()` dizendo algo tira o
+    # aparelho na hora, mesmo com leitura fresquissima no banco.
+    class ModDesligado:
+        @staticmethod
+        def estado(handle):
+            return "desligado"
+
+    class ModSemEstado:
+        pass
+
+    class ModQuebrado:
+        @staticmethod
+        def estado(handle):
+            raise RuntimeError("diagnostico falhou")
+
+    off = devices.Found(ModDesligado, "off", "Off", "headset", "/dev/e")
+    con.execute("INSERT INTO battery VALUES (?,?,?,?)", (now, "off", 99, None))
+    txt6 = battery.status_text(con, [off], []).splitlines()
+    assert len(txt6) == 1 and "off" not in "".join(txt6), txt6
+
+    # modulo sem estado() cai na regra da janela, como antes
+    semest = devices.Found(ModSemEstado, "semest", "SemEst", "mouse", "/dev/f")
+    con.execute("INSERT INTO battery VALUES (?,?,?,?)", (now, "semest", 88, None))
+    assert "dev mouse semest 88 - SemEst" in battery.status_text(con, [semest], [])
+
+    # estado() que explode NAO pode apagar aparelho: diagnostico falho nao decide
+    quebrado = devices.Found(ModQuebrado, "quebrado", "Quebrado", "mouse", "/dev/g")
+    con.execute("INSERT INTO battery VALUES (?,?,?,?)", (now, "quebrado", 66, None))
+    assert "dev mouse quebrado 66 - Quebrado" in battery.status_text(con, [quebrado], [])
+
+    return "ultimo valor vale, mas tem prazo e o modulo pode vetar"
 
 
 def analise():

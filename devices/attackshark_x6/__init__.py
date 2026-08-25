@@ -87,3 +87,22 @@ def parse(pkt):
         return None
     # charging=None de propósito: ver WONT e PROTOCOL.md.
     return Reading(pkt[PCT_INDEX], None, bytes(pkt[:5]))
+
+
+def estado(path):
+    """Por que o `battery()` não deu número. `None` se não souber dizer.
+
+    Este mouse **só se anuncia**: não há pergunta a fazer. Quando o canal existe
+    e não falou dentro da janela, o que se pode afirmar é exatamente isso — e não
+    o motivo. Foi medido um caso em que o dongle ficou mudo por 15 s seguidos
+    (mouse no cabo de carga), e o driver de referência diz que no modo cabo o
+    mouse para de falar pelo rádio; mas **inferir "está no cabo" pela presença do
+    PID de cabo seria errado**: em 2026-08-24 o `fa61` era justamente a interface
+    que carregava o canal de status, e em 2026-08-25 o mesmo PID apareceu com
+    duas interfaces sem canal nenhum. Mesmo PID, configuração USB diferente.
+
+    Então aqui não se adivinha. Devolver `None` deixa a regra da janela decidir,
+    que é o comportamento certo: aparelho calado há pouco mantém o último valor,
+    calado há muito sai da lista.
+    """
+    return None

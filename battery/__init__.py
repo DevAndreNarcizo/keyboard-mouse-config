@@ -23,6 +23,12 @@ STATUS = os.path.join(os.environ.get("XDG_CACHE_HOME") or
 # Segundos desde a última gravação acima dos quais quem escreve é dado por morto.
 # Espelha o `VELHO` da extensão do GNOME — mudou aqui, muda lá.
 STATUS_VELHO = 30 * 60
+# Idade máxima de uma leitura para ela ainda valer como "o número deste
+# aparelho". NÃO é a mesma coisa que STATUS_VELHO: aquele diz se QUEM ESCREVE
+# está vivo; este diz se A LEITURA ainda diz algo. Confundir os dois foi o bug:
+# com o serviço vivíssimo, o painel mostrava 75% de um fone desligado e 10% de um
+# mouse que passou a noite no carregador.
+LEITURA_VELHA = 30 * 60
 KEEP_DAYS = 90
 
 
@@ -249,6 +255,22 @@ def status_stale(ts, agora=None):
     return (agora or time.time()) - ts > STATUS_VELHO
 
 
+def _mudo_de_proposito(f):
+    """O módulo deste aparelho sabe dizer que ele não tem número a dar?
+
+    `estado()` é opcional no contrato. Módulo que não implementa devolve False
+    aqui e cai na regra da janela, como antes. Erro dentro do `estado()` também
+    devolve False: um diagnóstico que falha não pode apagar um aparelho.
+    """
+    quem = getattr(getattr(f, "mod", None), "estado", None)
+    if quem is None:
+        return False
+    try:
+        return quem(f.handle) is not None
+    except Exception:
+        return False
+
+
 def status_text(con, achados=None, leituras=None):
     """O que o painel lê. **Uma linha por aparelho presente**, não por categoria:
 
@@ -263,12 +285,23 @@ def status_text(con, achados=None, leituras=None):
     por aparelho porque um fone, um mouse e um teclado sem fio ao mesmo tempo são
     três coisas para mostrar, não uma escolha a fazer.
 
-    O valor é o da leitura de agora quando ela existe (`leituras`), e a última
-    linha do banco quando o aparelho está presente mas não respondeu. Isso é de
-    propósito: o receptor do mouse só fala com o mouse em uso, e mouse parado não
-    gastou bateria — repetir o último número é mais verdadeiro que apagá-lo. Quem
-    morre de verdade é o cron ou o serviço, e isso aparece no `ts`: a extensão
-    compara com o relógio e mostra "—" em vez de um número velho.
+    O valor é o da leitura de agora quando ela existe (`leituras`). Quando o
+    aparelho está presente mas não respondeu, vale a última linha do banco —
+    **desde que ela seja recente**. O receptor do mouse só fala com o mouse em
+    uso, e mouse parado não gastou bateria: repetir o número de cinco minutos
+    atrás é mais verdadeiro que apagá-lo.
+
+    **Mas só até `LEITURA_VELHA`.** Sem esse limite o "último valor conhecido"
+    virava eterno, e o painel afirmava coisas falsas com o serviço em perfeito
+    estado: 75 % de um fone desligado, e 10 % de um mouse que passou a noite
+    inteira no carregador (no cabo, o dongle do mouse para de reportar — medido,
+    0 frames em 15 s). Fora da janela o aparelho **sai da lista**: não mostrar
+    número é pior que mostrar um errado só quando o número certo existe.
+
+    E quando o próprio módulo sabe dizer que o aparelho não tem o que reportar —
+    o `estado()` opcional, que o fone implementa para "desligado" — ele sai na
+    hora, sem esperar a janela. Repetir valor de um aparelho que acabou de dizer
+    "estou desligado" seria teimosia, não cautela.
     """
     vivas = {f.ident: r for f, r in (leituras or ())}
     linhas = [f"ts {int(time.time())}"]
@@ -277,9 +310,17 @@ def status_text(con, achados=None, leituras=None):
         if r is not None:
             row = (r.pct, r.charging)
         else:
-            row = con.execute(
-                "SELECT pct, charging FROM battery WHERE device = ? "
+            # O módulo pode saber por que não veio número. Se ele sabe, a
+            # palavra dele vence o histórico: aparelho que respondeu "desligado"
+            # não tem bateria a mostrar.
+            if _mudo_de_proposito(f):
+                continue
+            achado = con.execute(
+                "SELECT pct, charging, ts FROM battery WHERE device = ? "
                 "ORDER BY ts DESC LIMIT 1", (f.ident,)).fetchone()
+            if not achado or time.time() - achado[2] > LEITURA_VELHA:
+                continue
+            row = achado[:2]
         if not row:
             continue
         carga = "-" if row[1] is None else str(int(row[1]))
