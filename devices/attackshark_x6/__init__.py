@@ -22,6 +22,9 @@ KIND = "mouse"
 # ("Xenta 2.4G Wireless Device"), no mesmo mouse, sem reinstalar nada.
 # `FA55` vem das regras udev do attack-shark-x11-driver e não foi visto aqui.
 IDS = ("00001D57:0000FA60", "00001D57:0000FA61", "00001D57:0000FA55")
+# "battery" continua declarado porque o aparelho TEM bateria legível — o
+# protocolo está mapeado em PROTOCOL.md. O que falta é fiação, não capacidade.
+# Quem explica o silêncio ao dono é o `estado()` no fim deste arquivo.
 CAPS = ("battery",)
 WONT = {
     "charging": "o param1 não bate com a tabela de estados do driver de "
@@ -57,12 +60,29 @@ def battery(path, wait=3):
     Mouse parado não fala, e isso é correto: parado não gastou bateria, e o
     `status_text` mantém o último valor conhecido em vez de apagá-lo.
     """
+    # DESLIGADO em 2026-08-25, e este `return` é o desligamento — não um
+    # comentário dizendo que está desligado (foi o que eu escrevi antes, e era
+    # falso: o código seguia devolvendo o percentual refutado).
+    #
+    # O `param2` do frame de anúncio NÃO é o percentual. Refutado assim: o mouse
+    # passou a noite no carregador, foi desplugado, o dongle voltou a falar, e o
+    # valor continuou 10. O `kmctl show` mostra min 10 / max 10 em dois dias — o
+    # byte nunca se moveu, em nenhuma leitura.
+    #
+    # Melhor o aparelho não aparecer do que aparecer mentindo. O canal certo está
+    # mapeado em PROTOCOL.md (report 0x08, comando 4, com percentual + flag de
+    # carga + tensão, extraído do HUB de navegador do fabricante) e falta testá-lo
+    # com o mouse ACORDADO: dormindo, o dongle devolve EPIPE.
+    return None
+
+
+def _escuta_anuncio(path, wait):
+    """Devolve o primeiro frame de anúncio válido, ou None. Sem uso no
+    `battery()` por enquanto — ver o comentário lá. Fica porque é o que o
+    `kmctl raw` e a investigação do `param2` precisam."""
     fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
     try:
         fim = time.time() + max(wait, 0.0)
-        # `while True` com a checagem no fim daria uma passada mesmo com wait=0,
-        # mas mentiria: o chamador que pediu 0 não quer bloquear. Melhor devolver
-        # None e o `--wait` resolver, que é o contrato dos outros anunciantes.
         while time.time() < fim:
             r, _, _ = select.select([fd], [], [], 0.2)
             if not r:
@@ -97,36 +117,20 @@ def parse(pkt):
     return Reading(pkt[PCT_INDEX], None, bytes(pkt[:5]))
 
 
-# ATENÇÃO — o `parse()` acima está DESLIGADO do `battery()` desde 2026-08-25.
-#
-# Ele lia o `param2` do frame de anúncio como percentual, e isso foi refutado: o
-# mouse passou a noite no carregador, foi desplugado, e o valor continuou 10. O
-# `kmctl show` mostra min 10 / max 10 em dois dias — o byte nunca se moveu.
-#
-# O `parse()` fica porque o selftest trava os bytes do frame e porque o
-# significado do `param2` continua sendo pergunta aberta (constante? escala
-# 0-10?). O que NÃO fica é afirmar 10% para o dono.
-#
-# O canal certo está mapeado em PROTOCOL.md: report 0x08, pacote de 16 bytes,
-# comando 4, com percentual, flag de carga E tensão — extraído do HUB de
-# navegador do fabricante. Falta testá-lo com o mouse fora do cabo de carga,
-# porque no cabo o dongle não repassa nada pelo rádio.
-
 
 def estado(path):
-    """Por que o `battery()` não deu número. `None` se não souber dizer.
+    """Por que não há número. Sempre responde, porque hoje nunca há.
 
-    Este mouse **só se anuncia**: não há pergunta a fazer. Quando o canal existe
-    e não falou dentro da janela, o que se pode afirmar é exatamente isso — e não
-    o motivo. Foi medido um caso em que o dongle ficou mudo por 15 s seguidos
-    (mouse no cabo de carga), e o driver de referência diz que no modo cabo o
-    mouse para de falar pelo rádio; mas **inferir "está no cabo" pela presença do
-    PID de cabo seria errado**: em 2026-08-24 o `fa61` era justamente a interface
-    que carregava o canal de status, e em 2026-08-25 o mesmo PID apareceu com
-    duas interfaces sem canal nenhum. Mesmo PID, configuração USB diferente.
+    Devolver uma string aqui **tira o aparelho do painel** (é o veto que o
+    `status_text` respeita), e é isso que se quer: enquanto a leitura não for
+    confiável, é melhor não mostrar nada do que mostrar 10% num mouse cheio.
 
-    Então aqui não se adivinha. Devolver `None` deixa a regra da janela decidir,
-    que é o comportamento certo: aparelho calado há pouco mantém o último valor,
-    calado há muito sai da lista.
+    Também impede que a leitura refutada que já está no banco volte a aparecer
+    pela janela do `LEITURA_VELHA` — o veto não espera a janela.
+
+    Quando o protocolo do HUB (PROTOCOL.md) for testado e ligado, esta função
+    volta a devolver `None` para o caso normal, e a regra da janela passa a
+    valer como em qualquer anunciante.
     """
-    return None
+    return ("leitura desativada — o byte do anúncio foi refutado (mouse cheio "
+            "marcava 10%); o canal certo está em PROTOCOL.md e falta testar")
