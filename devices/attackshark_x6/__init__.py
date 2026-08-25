@@ -97,6 +97,22 @@ def parse(pkt):
     return Reading(pkt[PCT_INDEX], None, bytes(pkt[:5]))
 
 
+# ATENÇÃO — o `parse()` acima está DESLIGADO do `battery()` desde 2026-08-25.
+#
+# Ele lia o `param2` do frame de anúncio como percentual, e isso foi refutado: o
+# mouse passou a noite no carregador, foi desplugado, e o valor continuou 10. O
+# `kmctl show` mostra min 10 / max 10 em dois dias — o byte nunca se moveu.
+#
+# O `parse()` fica porque o selftest trava os bytes do frame e porque o
+# significado do `param2` continua sendo pergunta aberta (constante? escala
+# 0-10?). O que NÃO fica é afirmar 10% para o dono.
+#
+# O canal certo está mapeado em PROTOCOL.md: report 0x08, pacote de 16 bytes,
+# comando 4, com percentual, flag de carga E tensão — extraído do HUB de
+# navegador do fabricante. Falta testá-lo com o mouse fora do cabo de carga,
+# porque no cabo o dongle não repassa nada pelo rádio.
+
+
 def estado(path):
     """Por que o `battery()` não deu número. `None` se não souber dizer.
 

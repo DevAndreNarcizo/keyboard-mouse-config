@@ -118,6 +118,75 @@ nenhum. Mesmo VID:PID, configuração diferente. Por isso o módulo escolhe a
 interface pela **assinatura do descritor**, nunca pelo PID — e por isso não se
 pode inferir "está no cabo" da presença de um PID.
 
+## O frame de anúncio NÃO é a bateria — e o que é
+
+**Correção de 2026-08-25.** Este documento afirmava que o `param2` do frame de
+anúncio era o percentual. **Está errado**, e o teste que derrubou foi o óbvio: o
+mouse passou a noite inteira no carregador, foi desplugado, o dongle voltou a
+falar — e o valor continuou `0x0a`. O histórico do `kmctl show` mostra
+`min 10 / max 10`: o byte **nunca se moveu**, em nenhuma leitura, em dois dias.
+
+Um mouse carregado a noite inteira não está com 10%. Ou `0x0a` não é bateria, ou
+é uma escala 0–10 (e aí 10 = cheio, o que encaixaria com tudo). Não foi decidido
+por medição, e por isso o percentual saiu do módulo.
+
+### O canal certo: o protocolo do HUB de navegador
+
+A Attack Shark publica um configurador **em navegador**, sem instalação, que
+funciona em Linux e cobre o X6: <https://controlhub.top/AttackShark/>. Ele fala
+WebHID, então o protocolo está no JavaScript dele — que é uma fonte melhor que
+qualquer binário de Windows. Extraído de `assets/index-BLQzAg-a.js`:
+
+**Enquadramento.** Report **`0x08`**, pacote de **16 bytes**:
+
+```
+[0]  comando
+[4]  sequência   (0 para mouse; 128 para teclado — a função `fr()` do HUB)
+[15] checksum
+```
+
+O checksum é escolhido para que **a soma de (report ID + os 16 bytes) dê `0x55`**.
+No JS: `at(t) = 85 - (soma(t[0..14]) & 255)`, e depois `t[15] = at(t) - 8`, onde
+`8` é justamente o report ID. O verificador do outro lado (`hw()`) confere que a
+soma dá 85.
+
+**Comandos** (enum `Ne` do HUB), os relevantes:
+
+| nº | nome |
+|---|---|
+| 3 | `DeviceOnLine` |
+| **4** | **`BatteryLevel`** |
+| 6 | `GetPairState` |
+| 14 | `GetCurrentConfig` |
+
+**Resposta da bateria.** Chega como **input report**, não por `GET_FEATURE` — o
+HUB a lê no `oninputreport`. O `Le` do JS é o `DataView` do WebHID, que **exclui**
+o report ID; no `/dev/hidraw*` tudo desloca um byte:
+
+| `Le[i]` do HUB | byte no hidraw | significado |
+|---|---|---|
+| `Le[0]` | `pkt[1]` | eco do comando (`4`) |
+| `Le[5]` | `pkt[6]` | **percentual** |
+| `Le[6]` | `pkt[7]` | **carregando** (`==1`) |
+| `Le[7..8]` | `pkt[8..9]` | **tensão em mV**, big-endian |
+| `Le[9]` | `pkt[10]` | se `==1`, o percentual está em `Le[10]` (`pkt[11]`) |
+
+O estado inicial do HUB é `battery:{level:20, charging:false, voltage:3728}` —
+confirmando que `level` é percentual 0–100 e `voltage` é mV, exatamente como o
+fone HyperX faz.
+
+**Isso dá também a flag de carga**, que o frame de anúncio não dava de forma
+confiável — e é o que permite mostrar o `⚡` em vez de fazer o aparelho sumir.
+
+### Estado do teste
+
+`SET_FEATURE` no report `0x08` com o pacote acima **foi aceito uma vez**
+(`set ok`). O `GET_FEATURE` seguinte deu `ETIMEDOUT`, coerente com a resposta
+chegar por input report. As tentativas seguintes deram `EPIPE` — e a explicação
+é a mesma limitação já medida: **o cabo tinha sido replugado**, e com o mouse no
+cabo o dongle não repassa nada pelo rádio. **Falta rodar o teste com o mouse fora
+do cabo.**
+
 ## O que não se sabe
 
 - **param1.** Aqui vale `0x02`. A tabela do driver de referência diz
