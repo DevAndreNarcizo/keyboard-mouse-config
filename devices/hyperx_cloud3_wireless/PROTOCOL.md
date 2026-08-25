@@ -72,6 +72,20 @@ de recarga).
 O app de referência descarta valor `> 100`: é o que o Cloud III S devolve
 desligado (`0xff`). O `pct_ok` deste repo já corta isso e o zero.
 
+## Fone desligado: responde, mas zerado
+
+O dongle continua enumerado com o fone desligado, e **responde à pergunta** — com
+tudo zerado:
+
+```
+66 89 00 00 00     ->  0 mV, 0 %
+```
+
+Isso não é leitura ruim: é "não há fone do outro lado". O `pct_ok` já descarta o
+zero, mas o `kmctl battery` dizia "não respondeu em 5s", o que manda procurar
+defeito onde não há. O módulo implementa o hook opcional `estado()`, que o
+`kmctl` usa para dizer **desligado** em vez de "mudo". Medido em 2026-08-25.
+
 ## O que não se sabe
 
 - **Flag de carga.** Nenhum byte da resposta mudou de forma reconhecível com o

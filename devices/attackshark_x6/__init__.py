@@ -16,7 +16,12 @@ from .. import Reading, find_iface, pct_ok
 
 NAME = "Attack Shark X6"
 KIND = "mouse"
-IDS = ("00001D57:0000FA61",)
+# TRÊS PIDs, porque o X6 é tri-mode e **troca de ID USB conforme o modo** — o
+# aparelho some do repo sem erro nenhum quando o dono muda a chavinha.
+# Visto aqui: `FA61` ("Xenta USB Gaming Mouse") e depois `FA60`
+# ("Xenta 2.4G Wireless Device"), no mesmo mouse, sem reinstalar nada.
+# `FA55` vem das regras udev do attack-shark-x11-driver e não foi visto aqui.
+IDS = ("00001D57:0000FA60", "00001D57:0000FA61", "00001D57:0000FA55")
 CAPS = ("battery",)
 WONT = {
     "charging": "o param1 não bate com a tabela de estados do driver de "

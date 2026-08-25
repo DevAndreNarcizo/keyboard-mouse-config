@@ -50,11 +50,31 @@ frame como "byte 1 é o percentual" daria 16%, e teria sido plausível.
 
 | | |
 |---|---|
-| VID:PID | `1d57:fa61` (enumera como "Beken USB Gaming Mouse") |
+| VID:PID | **três**: `1d57:fa60`, `fa61`, `fa55` — ver abaixo |
 | `HID_ID` | `0003:00001D57:0000FA61` |
 | interface | a que declara **Report ID 3 sob a página Ordinal (`0x0A`)** |
 
 **Procurar "Attack Shark" no `lsusb` não acha nada**, igual ao caso do Delux.
+
+### O PID muda com o modo, e isso derruba o aparelho em silêncio
+
+O X6 é tri-mode, e **troca de ID USB conforme o modo**. Visto aqui no mesmo
+mouse, sem reinstalar nada:
+
+| PID | como enumera | quando |
+|---|---|---|
+| `fa61` | "Xenta USB Gaming Mouse" / "Beken USB Gaming Mouse" | 2026-08-24 |
+| `fa60` | "Xenta 2.4G Wireless Device" / "Beken 2.4G Wireless Device" | 2026-08-25 |
+| `fa55` | — | não visto aqui; vem das regras udev do attack-shark-x11-driver |
+
+O módulo declarava só o `fa61`, e no dia seguinte o mouse **sumiu do `kmctl`
+sem erro nenhum** — o `find()` não achava e o aparelho simplesmente não existia.
+É o mesmo modo de falha que o `find_iface` tinha com a página `0xFF13` do fone:
+ausência silenciosa é pior que erro.
+
+O frame também mudou de `03 10 40 02 0a` para `03 10 40 01 0a` — só o `param1`.
+Como o parse confere apenas os bytes 0..2 e lê o byte 4, isso não quebrou nada,
+e reforça que o `param1` é estado (e não bateria).
 
 O receptor expõe **quatro** interfaces com o mesmo VID:PID e **nenhuma página de
 fabricante** — o que quebra a regra que o resto do repo usa para desempatar. A

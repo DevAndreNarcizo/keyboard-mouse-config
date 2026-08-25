@@ -238,7 +238,20 @@ def cmd_battery(args):
     for f in achados:
         r = f.mod.battery(f.handle, args.wait)
         if r is None:
-            print(f"{f.kind:9} —  ({f.name} não respondeu em {args.wait:.0f}s)")
+            # Alguns aparelhos respondem dizendo que não têm o que dizer — o
+            # fone devolve um frame zerado quando está desligado. Isso não é a
+            # mesma coisa que ficar mudo, e tratar os dois como "não respondeu"
+            # manda o dono procurar defeito onde não há. `estado()` é opcional:
+            # quem não implementa continua com a mensagem genérica.
+            porque = None
+            quem = getattr(f.mod, "estado", None)
+            if quem is not None:
+                try:
+                    porque = quem(f.handle)
+                except Exception:
+                    porque = None
+            motivo = porque or f"não respondeu em {args.wait:.0f}s"
+            print(f"{f.kind:9} —  ({f.name}: {motivo})")
             continue
         carga = " carregando" if r.charging else ""
         print(f"{f.kind:9} {r.pct}%{carga}  ({f.name})")

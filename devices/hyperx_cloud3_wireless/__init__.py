@@ -30,6 +30,7 @@ WONT = {
 REPORT = 0x66  # Output 61B + Input 61B, os dois na página 0xff13
 OP_STATUS = 0x89
 REQ_SIZE = 52  # tamanho do app de referência; o descritor aceita até 61
+OP_INDEX = 1
 PCT_INDEX = 4
 MV_HI, MV_LO = 2, 3  # tensão da célula, big-endian, em mV
 
@@ -46,6 +47,17 @@ def battery(path, wait=0):
     `wait` é ignorado de propósito: este aparelho **responde a pergunta**, não se
     anuncia. Esperar não traz nada — a resposta chega em milissegundos ou não
     chega. Ver a distinção em SETUP.md ("Dois tipos de aparelho").
+    """
+    pkt = _perguntar(path)
+    return parse(pkt) if pkt is not None else None
+
+
+def _perguntar(path):
+    """Manda a pergunta e devolve o frame cru do eco, ou `None` se ele não vier.
+
+    Separado do `battery()` porque o `estado()` precisa do MESMO frame para
+    distinguir "fone desligado" de "canal mudo". Duas escritas seriam duas
+    perguntas, e o dongle poderia responder coisas diferentes às duas.
     """
     req = bytearray(REQ_SIZE)
     req[0] = REPORT
@@ -67,9 +79,8 @@ def battery(path, wait=0):
                 pkt = os.read(fd, 64)
             except OSError:
                 continue
-            r = parse(pkt)
-            if r:
-                return r
+            if len(pkt) > OP_INDEX and pkt[0] == REPORT and pkt[1] == OP_STATUS:
+                return pkt
         return None
     finally:
         os.close(fd)
@@ -101,3 +112,22 @@ def millivolts(pkt):
     if len(pkt) < MV_LO + 1:
         return None
     return (pkt[MV_HI] << 8) | pkt[MV_LO]
+
+
+def estado(path):
+    """Por que o `battery()` não deu número. `None` se não souber dizer.
+
+    O dongle continua enumerado com o fone desligado, e nesse caso ele **responde**
+    — com o frame zerado `66 89 00 00 00`. Percentual 0 e tensão 0 mV: não é
+    leitura ruim, é "não há fone do outro lado".
+
+    Sem isto o `kmctl battery` dizia "não respondeu em 5s" para um fone
+    simplesmente desligado, o que manda procurar defeito onde não há. Medido em
+    2026-08-25, com o fone na base e desligado.
+    """
+    pkt = _perguntar(path)
+    if pkt is None:
+        return None
+    if pkt[MV_HI] == 0 and pkt[MV_LO] == 0 and pkt[PCT_INDEX] == 0:
+        return "desligado — o dongle respondeu com o frame zerado"
+    return None
