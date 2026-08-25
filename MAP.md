@@ -226,15 +226,35 @@ Consequências, cada uma medida aqui — menos onde estiver dito que não:
       gnome-extensions info battlog@victor      # State: ACTIVE
       journalctl --user -b | grep -i battlog
 
-- **`Alt+F2` → `r` não era só inútil aqui: era desnecessário.** Duas correções ao
-  que este repo dizia, as duas medidas na 50.1:
+- **`Alt+F2` → `r`: três coisas, e só a primeira era sabida.** Todas medidas na 50.1:
   1. o atalho **não existe em Wayland** — o shell é o compositor e não pode se
      reiniciar sem derrubar a sessão. O diálogo trata o `r` como um programa
      qualquer e responde `command not found`;
   2. e **não faz falta**: a afirmação de que "o GNOME varre a pasta de extensões
      uma vez, na inicialização" **não vale na 50.1**. Ele monitora a pasta, e
      pegou a extensão no instante em que o `setup-calecos.sh` criou o symlink —
-     sem deslogar. Na 46 era verdade; em algum ponto do caminho deixou de ser.
+     sem deslogar. Na 46 era verdade; em algum ponto do caminho deixou de ser;
+  3. e o gesto **dá para devolver**, fazendo outra coisa: `panel/reload-extensions`,
+     instalado como `/usr/local/bin/r`, recarrega uma extensão (disable+enable, que
+     faz o shell reler o arquivo do disco). Vai em `/usr/local/bin` porque o
+     `~/.local/bin` está no PATH do shell mas **não** no da sessão, que é o que o
+     diálogo do `Alt+F2` enxerga.
+
+- **Recarregar TODAS as extensões de uma vez quebra a sessão.** Aprendido do jeito
+  ruim aqui: extensões que fazem monkey-patch no shell (`ding`, `dash-to-dock`,
+  `hanabi`) guardam a função original para restaurar no `disable`. Derrubadas fora
+  de ordem, uma restaura por cima da outra, a cadeia se perde
+  (`replaceData.old_get_window_actors is undefined`) e **cinco extensões caíram em
+  ERROR de uma vez** — inclusive a battlog. Extensão em ERROR **não volta com
+  `enable`**: o shell não a reimporta. Só reiniciando o shell, o que em Wayland
+  quer dizer deslogar. Por isso o `r` recarrega **uma só**, e recusa alvo que já
+  esteja em ERROR em vez de fingir que resolve.
+
+- **E isso expôs um bug real da extensão**, que estava lá desde sempre: o
+  `disable()` fazia `this._indicator.destroy()` sem guarda. O shell chama
+  `disable()` mesmo quando o `enable()` nunca rodou, e aí o `TypeError` põe a
+  extensão em ERROR — de onde ela não sai sozinha. Agora é `this._indicator?.` e o
+  `enable()` derruba um indicador órfão antes de criar outro.
 
 - **O trecho que desenha aparelho foi exercitado**, já que nenhum hardware daqui
   alimenta o painel: com o serviço parado, duas linhas `dev` sintéticas no cache e
@@ -283,22 +303,46 @@ Quem monta esta máquina é **`setup-calecos.sh`**, não o `install.sh`. O
 - **Bluetooth continua desligado por escolha.** O `setup-calecos.sh` não o liga. O
   caminho `bluez_any` fica inativo por consequência, e isso não é bug.
 
-### E mesmo assim: nenhum aparelho reporta bateria
+### Os três aparelhos: um resolvido, dois em aberto
 
-Com permissão em hidraw para os três, o `kmctl scan` continua colocando **todos no
-caminho 4**. O que já dá para afirmar:
+Nenhum dos três é visto pelos caminhos automáticos — todos caem no caminho 4, o
+do opcode de fabricante. Estado de cada um:
 
-- o fone **tem** bateria e mesmo assim não a expõe: o kernel 7.0 não tem driver de
-  fabricante para o `03f0:0c9d`, ele cai em `hid_generic` e não cria
-  `power_supply` nenhum;
-- o mouse Attack Shark e o receptor combo não respondem à sonda de família, que
-  hoje só conhece o `0x0c` da Delux/TeLink.
+**Fone HyperX Cloud III Wireless — RESOLVIDO.** `devices/hyperx_cloud3_wireless/`.
+Report `0x66` na página `0xff13`: escreve `66 89 00…`, e a resposta traz o
+percentual no byte 4 e a tensão da célula nos bytes 2..3. Medido: `66 89 0f 74 4f`
+→ 3956 mV e 79 %, dois campos independentes concordando. Protocolo e a fonte em
+`devices/hyperx_cloud3_wireless/PROTOCOL.md`.
 
-Ou seja: **fazer o painel mostrar um número aqui exige engenharia reversa**, não
-configuração. A ferramenta é `./kmctl raw`, e as regras udev que este commit
-acrescentou (`99-cx-2.4g-receiver.rules`, `99-hyperx-cloud3.rules`) existem
-justamente para que ela possa ser apontada para esses aparelhos. Até lá o painel
-mostra o widget vazio — que é o comportamento correto, não uma falha.
+Achar isto obrigou a consertar o `find_iface`, que só reconhecia `0xFF00` e
+`0xFFFF` como página de fabricante — a faixa vendor-defined é `0xFF00`–`0xFFFF`
+inteira, e o fone usa `0xFF13`. O aparelho estava plugado e aparecia como ausente,
+**sem erro nenhum**.
+
+**Mouse Attack Shark X6 (`1d57:fa61`) — em aberto, com pista forte.** Ele
+**anuncia sozinho** no report `0x03` (página `0x0a`, Input de 4 B):
+
+    03 10 40 02 0a
+
+A família toda tem a mesma forma, com o percentual no último byte:
+
+| modelo | frame | fonte |
+|---|---|---|
+| Delux M900Pro | `03 50 41 01 PP` | `devices/delux_m900pro/` |
+| Attack Shark X11 | `03 55 40 01 PP` | HarukaYamamoto0/attack-shark-x11-driver |
+| **Attack Shark X6 (aqui)** | `03 10 40 02 ??` | este frame |
+
+Pelo padrão, o `0x0a` = **10 %**. **Não confirmado**: falta a leitura real do
+mouse para comparar, ou ver o valor subir no dock de carga. Sem isso não vira
+módulo — 10 % é baixo o bastante para ser um número errado plausível.
+
+**Teclado AULA F75 (receptor `3554:fa09`) — em aberto.** O canal de fabricante é a
+página `0xff02`, report `0x13` (Input 19 B e Output 19 B); há também uma Feature
+`0xff04` report `0x06` de 7 B, que responde `06 00 02 00 e8 00 cc fb`. Já
+eliminado por teste: os opcodes `0x20 0x01` do
+[Aula-F75-Max-Driver](https://github.com/VitalyArt/Aula-F75-Max-Driver) (que é
+para o F75 **Max**, outro modelo) não produzem resposta no report `0x13`, e
+tentá-los como report `0x20` dá `EPIPE` — esse report não existe neste descritor.
 
 ## Não ativo
 

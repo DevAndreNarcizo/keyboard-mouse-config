@@ -78,6 +78,28 @@ def pct_ok(v):
     return isinstance(v, int) and 1 <= v <= 100
 
 
+def _tem_pagina_vendor(desc):
+    """O descritor declara alguma Usage Page da faixa vendor (0xFF00..0xFFFF)?
+
+    `06 XX FF` é "Usage Page, 2 bytes, little-endian" — o `FF` no byte alto é o
+    que põe a página na faixa reservada ao fabricante.
+
+    **Isto já foi `0xFF00` ou `0xFFFF` e mais nada**, e a conta não fechava: o
+    HyperX Cloud III usa `0xFF13`, e o `find_iface` simplesmente não achava um
+    aparelho que estava plugado, sem erro nenhum — o módulo aparecia como
+    ausente. A faixa inteira é vendor-defined pela spec HID; recortar dois
+    valores dela era um acidente, não uma regra.
+
+    Continua valendo a advertência do `find_iface`: aceitar a faixa toda amplia
+    quais interfaces casam, e quem precisa de precisão cirúrgica (o K86, cuja
+    outra interface carrega o NKRO) usa `at_start=True`, que não passa por aqui.
+    """
+    for i in range(len(desc) - 2):
+        if desc[i] == 0x06 and desc[i + 2] == 0xFF:
+            return True
+    return False
+
+
 def find_iface(ids, writable=False, at_start=False):
     """/dev/hidrawN do canal vendor desses HID_ID. None se não estiver plugado.
 
@@ -101,7 +123,7 @@ def find_iface(ids, writable=False, at_start=False):
         if at_start:
             if not (desc[0] == 0x06 and desc[2] == 0xFF):
                 continue
-        elif not (b"\x06\x00\xff" in desc or b"\x06\xff\xff" in desc):
+        elif not _tem_pagina_vendor(desc):
             continue
         if writable and not (b"\xb1\x02" in desc or b"\x91\x02" in desc):
             continue

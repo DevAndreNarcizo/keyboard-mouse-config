@@ -93,6 +93,13 @@ else:
     subprocess.run(g[:1] + ["set"] + g[2:] + [str(lst)], check=True)
     print("    habilitada (aparece depois que o shell reiniciar)")
 EXTPY
+
+  echo "==> comando \`r\` (recarregar extensão sem reiniciar o shell)"
+  # Vai em /usr/local/bin e não em ~/.local/bin de propósito: o ~/.local/bin
+  # está no PATH do shell mas NÃO no da sessão, e é o da sessão que o diálogo
+  # do Alt+F2 enxerga. Conferido aqui com `systemctl --user show-environment`.
+  "${SUDO[@]}" install -m755 panel/reload-extensions /usr/local/bin/r
+  echo "    Alt+F2 -> r -> Enter recarrega a battlog (uma extensão, nunca em lote)"
 else
   echo "==> GNOME não detectado, pulando gsettings"
 fi
@@ -122,9 +129,15 @@ instante em que o symlink aparece. Confira:
   gnome-extensions info battlog@victor     # State: ACTIVE
   journalctl --user -b | grep -i battlog   # deve sair vazio
 
-Se um dia precisar mesmo reiniciar o shell, saiba que `Alt+F2` → `r` **é de X11**
-e aqui responde `command not found`: em Wayland o shell é o compositor, e a única
-forma é deslogar e logar.
+`Alt+F2` → `r` → Enter volta a funcionar, mas fazendo outra coisa: em X11 esse
+atalho reinicia o shell, e em Wayland isso é impossível (o shell é o compositor).
+O que este setup instalou em /usr/local/bin/r **recarrega a extensão** — que é o
+que se quer em 99% dos casos. Uma por vez, e por padrão a battlog.
+
+  r                      recarrega a battlog@victor
+  r outra@extensao       recarrega outra
+
+Recarregar NÃO alcança o código do próprio shell. Para isso, deslogar mesmo.
 
 Se o painel mostrar "—", o problema não é o painel: é que ninguém escreveu o
 cache nos últimos 30 min. Olhe o serviço:

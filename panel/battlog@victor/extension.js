@@ -180,12 +180,25 @@ class Battlog extends PanelMenu.Button {
 
 export default class BattlogExtension extends Extension {
     enable() {
+        // Guarda contra enable() em cima de um indicador que já existe: o shell
+        // faz isso quando um disable() anterior falhou no meio. Sem isto sobra um
+        // indicador órfão na barra, que ninguém mais consegue destruir.
+        if (this._indicator)
+            this.disable();
         this._indicator = new Battlog();
         Main.panel.addToStatusArea(this.uuid, this._indicator);
     }
 
     disable() {
-        this._indicator.destroy();
+        // O `?.` não é decoração. O shell chama disable() mesmo quando enable()
+        // nunca rodou (extensão que entrou em ERROR, recarga em lote, sessão
+        // terminando) e, sem a guarda, esse segundo disable() lança
+        // "this._indicator is null" — o que põe a extensão em ERROR e ela não
+        // volta sozinha nem reabilitando: só reiniciando o shell.
+        //
+        // Foi exatamente o que aconteceu ao recarregar todas as extensões de
+        // uma vez em 2026-08-24.
+        this._indicator?.destroy();
         this._indicator = null;
     }
 }
