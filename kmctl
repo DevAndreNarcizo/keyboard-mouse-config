@@ -23,8 +23,10 @@ no instante em que o diretório dele existe.
     kmctl selftest                 checa o repo inteiro (não precisa hardware)
 """
 import argparse
+import json
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -128,6 +130,81 @@ def cmd_devices(args):
     return 0
 
 
+def cmd_bar(args):
+    """Uma linha para barra de status. NÃO fala com hardware.
+
+    Lê o mesmo `~/.cache/battlog-status` que a extensão do GNOME lê — e é isso
+    que a torna útil: o dado é escrito uma vez pelo `watch`, e cada ambiente
+    gráfico só desenha. A extensão do GNOME serve o GNOME; esta saída serve o
+    resto (waybar, quickshell, eww, polybar), que é o que existe no Hyprland.
+
+    Três estados, os mesmos da extensão, porque discordar deles seria pior que
+    não existir:
+      - cache fresco com aparelhos -> os percentuais
+      - cache fresco e vazio       -> saída VAZIA (a barra some o módulo)
+      - cache velho ou ausente     -> "—", e classe `stale`
+
+    O `--follow` existe porque o modo `exec` do waybar aceita saída contínua:
+    o processo fica de pé e cada linha nova redesenha o módulo. Sem ele a barra
+    teria que reexecutar por tempo, e o dado voltaria a ter atraso — que é
+    justamente o que o `watch` deste repo eliminou.
+    """
+    icones = {"keyboard": "\uf11c", "mouse": "\uf87c", "headset": "\uf025",
+              "phone": "\uf10b", "gamepad": "\uf11b", "other": "\uf240"}
+
+    def render():
+        ts, devs = battery.read_status()
+        velho = battery.status_stale(ts)
+        if velho:
+            texto, classe = "—", "stale"
+            dica = ("battlog: sem dado há mais de 30 min — o battlog.service "
+                    "está de pé? (systemctl --user status battlog.service)")
+            pct = None
+        elif not devs:
+            # Vazio de propósito: nada aqui tem bateria, e o módulo deve sumir.
+            texto, classe, dica, pct = "", "empty", "", None
+        else:
+            partes, linhas = [], []
+            for d in devs:
+                marca = "\u26a1" if d["charging"] else ""
+                ic = (icones.get(d["kind"], icones["other"]) + " ") if args.icons else ""
+                partes.append(f"{ic}{d['pct']}%{marca}")
+                linhas.append(f"{d['name']}: {d['pct']}%"
+                              + (" (carregando)" if d["charging"] else ""))
+            texto = "  ".join(partes)
+            dica = "\n".join(linhas)
+            pct = min(d["pct"] for d in devs)
+            classe = ("charging" if any(d["charging"] for d in devs)
+                      else "low" if pct <= 20 else "ok")
+        if args.json:
+            obj = {"text": texto, "tooltip": dica, "class": classe}
+            # `percentage` é opcional no waybar e ele o usa para desenhar barra
+            # de progresso; mandar null quebraria o desenho, então some.
+            if pct is not None:
+                obj["percentage"] = pct
+            return json.dumps(obj, ensure_ascii=False)
+        return texto
+
+    if not args.follow:
+        print(render(), flush=True)
+        return 0
+
+    # Vigia por mtime em vez de inotify: é stdlib pura, que é a regra deste repo,
+    # e 1 s de granularidade não se percebe numa barra. O `anterior` compara o
+    # RENDER, não o mtime — o batimento de 5 min reescreve o arquivo sem mudar
+    # nada, e reemitir aí faria a barra piscar sem motivo.
+    anterior = object()
+    try:
+        while True:
+            atual = render()
+            if atual != anterior:
+                print(atual, flush=True)
+                anterior = atual
+            time.sleep(1)
+    except KeyboardInterrupt:
+        return 0
+
+
 def cmd_scan(args):
     import scan
     linhas = scan.varrer()
@@ -229,6 +306,14 @@ def main():
     sh.add_argument("--days", type=float, default=7)
     sh.add_argument("--width", type=int, default=60)
     sub.add_parser("status", help="o cache que o painel lê")
+    br = sub.add_parser("bar", help="uma linha para barra de status "
+                                    "(waybar, quickshell, eww, polybar)")
+    br.add_argument("--json", action="store_true",
+                    help="objeto no formato de módulo custom do waybar")
+    br.add_argument("--follow", action="store_true",
+                    help="fica vigiando o cache e reemite quando muda")
+    br.add_argument("--icons", action="store_true",
+                    help="prefixo com ícone Nerd Font por categoria")
     li = sub.add_parser("light", help="modo de iluminação")
     li.add_argument("--mode", type=int, default=7)
     li.add_argument("--brightness", type=int, default=5)
@@ -280,6 +365,8 @@ def main():
         battery.write_status(con, texto=texto)
         print(texto, end="")
         return 0
+    if args.cmd == "bar":
+        return cmd_bar(args)
     if args.cmd == "raw":
         battery.report_raw(battery.db_open(), args.days)
         return 0

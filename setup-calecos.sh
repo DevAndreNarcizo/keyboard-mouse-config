@@ -36,9 +36,7 @@ if [ -n "${SUDO_ASKPASS:-}" ]; then
 fi
 
 echo "==> conferindo o terreno"
-[ "${XDG_SESSION_TYPE:-}" = wayland ] \
-  && echo "    sessão Wayland — reiniciar o shell aqui é deslogar (Alt+F2 r é só X11)" \
-  || echo "    sessão ${XDG_SESSION_TYPE:-desconhecida} — este script foi escrito para Wayland, siga em frente com atenção"
+echo "    sessão: ${XDG_CURRENT_DESKTOP:-?} / ${XDG_SESSION_TYPE:-?}"
 id -nG | tr ' ' '\n' | grep -qx plugdev \
   && echo "    no grupo plugdev: ok" \
   || echo "    !! FORA do grupo plugdev — as regras udev não bastam. sudo usermod -aG plugdev $USER, e relogar"
@@ -62,21 +60,27 @@ echo "==> regras udev (hidraw sem root)"
 "${SUDO[@]}" udevadm trigger --subsystem-match=hidraw
 echo "    $(ls /etc/udev/rules.d/*.rules 2>/dev/null | wc -l) arquivos de regra em /etc/udev/rules.d/"
 
-if command -v gsettings >/dev/null && [ -n "${XDG_CURRENT_DESKTOP:-}" ]; then
-  echo "==> input sources do GNOME"
-  # Fixado explicitamente para o setup ser reproduzível numa máquina nova. Nesta
-  # aqui é no-op: já era us+intl.
-  ATUAL=$(gsettings get org.gnome.desktop.input-sources sources)
+# ---------------------------------------------------------------------------
+# DUAS SESSÕES, e por isso o gate é pelo que está INSTALADO, não pelo que está
+# rodando. O login desta máquina oferece `ubuntu.desktop` (GNOME) e três
+# `hyprland*.desktop`; rodar este script de dentro de uma sessão e configurar só
+# ela deixaria a outra quebrada até alguém rodar de novo lá dentro. Cada frente
+# instala a sua parte, e quem escolhe é a sessão em que se loga.
+# ---------------------------------------------------------------------------
+
+if command -v gnome-shell >/dev/null; then
+  echo "==> GNOME (instalado)"
+
+  # Só faz sentido no GNOME; no Hyprland o layout vem do `input {}` do hyprland.
+  ATUAL=$(gsettings get org.gnome.desktop.input-sources sources 2>/dev/null || echo "")
   ALVO="[('xkb', 'us+intl')]"
   if [ "$ATUAL" = "$ALVO" ]; then
-    echo "    já é us(intl), nada a fazer"
-  else
-    echo "    era $ATUAL"
+    echo "    input sources: já é us(intl)"
+  elif [ -n "$ATUAL" ]; then
     gsettings set org.gnome.desktop.input-sources sources "$ALVO"
-    echo "    agora é $ALVO"
+    echo "    input sources: $ATUAL -> $ALVO"
   fi
 
-  echo "==> extensão do painel"
   EXT="$HOME/.local/share/gnome-shell/extensions/battlog@victor"
   mkdir -p "$(dirname "$EXT")"
   ln -sfnT "$PWD/panel/battlog@victor" "$EXT"
@@ -87,22 +91,62 @@ import ast, subprocess
 g = ["gsettings", "get", "org.gnome.shell", "enabled-extensions"]
 lst = ast.literal_eval(subprocess.check_output(g, text=True).strip().removeprefix("@as "))
 if "battlog@victor" in lst:
-    print("    já habilitada")
+    print("    extensão do painel: já habilitada")
 else:
     lst.append("battlog@victor")
     subprocess.run(g[:1] + ["set"] + g[2:] + [str(lst)], check=True)
-    print("    habilitada (aparece depois que o shell reiniciar)")
+    print("    extensão do painel: habilitada")
 EXTPY
-
-  echo "==> comando \`r\` (recarregar extensão sem reiniciar o shell)"
-  # Vai em /usr/local/bin e não em ~/.local/bin de propósito: o ~/.local/bin
-  # está no PATH do shell mas NÃO no da sessão, e é o da sessão que o diálogo
-  # do Alt+F2 enxerga. Conferido aqui com `systemctl --user show-environment`.
-  "${SUDO[@]}" install -m755 panel/reload-extensions /usr/local/bin/r
-  echo "    Alt+F2 -> r -> Enter recarrega a battlog (uma extensão, nunca em lote)"
 else
-  echo "==> GNOME não detectado, pulando gsettings"
+  echo "==> GNOME não instalado, pulando a extensão do painel"
 fi
+
+if command -v Hyprland >/dev/null && command -v qs >/dev/null; then
+  echo "==> Hyprland (instalado)"
+
+  # A barra do Hyprland é outro programa: aqui, quickshell. O widget é um config
+  # SEPARADO, ao lado do `ii` do dots-hyprland — editar o `ii` seria mexer em
+  # código de terceiro que a próxima atualização dele sobrescreve sem avisar.
+  EXECS="$HOME/.config/hypr/custom/execs.conf"
+  LINHA="exec-once = qs -p $PWD/panel/quickshell/battlog.qml"
+  if [ ! -f "$EXECS" ]; then
+    echo "    !! $EXECS não existe — o widget não vai subir sozinho."
+    echo "       Acrescente à mão:  $LINHA"
+  elif grep -qF "battlog.qml" "$EXECS"; then
+    echo "    autostart: já está em custom/execs.conf"
+  else
+    cp "$EXECS" "$EXECS.bak-$(date +%Y%m%d%H%M%S)"
+    {
+      echo ""
+      echo "# --- battlog: bateria dos periféricos ---"
+      echo "$LINHA"
+    } >> "$EXECS"
+    echo "    autostart: acrescentado (backup em execs.conf.bak-*)"
+  fi
+
+  # NÃO reescreve o input{} do usuário: só confere que os dois lados concordam.
+  # Se o GNOME está em us+intl e o Hyprland em outra coisa, trocar de sessão
+  # trocaria o teclado por baixo do dono — e isso ele tem que decidir, não eu.
+  HGEN="$HOME/.config/hypr/custom/general.conf"
+  if [ -f "$HGEN" ] && grep -q "kb_layout *= *us" "$HGEN" && grep -q "kb_variant *= *intl" "$HGEN"; then
+    echo "    teclado: kb_layout=us kb_variant=intl — bate com o GNOME"
+  else
+    echo "    teclado: NÃO confirmado como us/intl em custom/general.conf."
+    echo "       As duas sessões podem estar com layouts diferentes. Para igualar:"
+    echo "       input { kb_layout = us  kb_variant = intl }"
+  fi
+else
+  echo "==> Hyprland não instalado, pulando o widget do quickshell"
+fi
+
+echo "==> comando \`r\` (recarregar a interface)"
+# Vai em /usr/local/bin e não em ~/.local/bin de propósito: o ~/.local/bin está
+# no PATH do shell mas NÃO no da sessão, e é o da sessão que o diálogo do
+# Alt+F2 enxerga. Conferido com `systemctl --user show-environment`.
+#
+# Instalado SEMPRE: ele decide em tempo de execução em qual compositor está.
+"${SUDO[@]}" install -m755 panel/reload-shell /usr/local/bin/r
+echo "    GNOME: recarrega a extensão | Hyprland: hyprctl reload"
 
 echo "==> serviço de usuário (bateria em tempo real)"
 UNIT="$HOME/.config/systemd/user/battlog.service"
@@ -129,15 +173,23 @@ instante em que o symlink aparece. Confira:
   gnome-extensions info battlog@victor     # State: ACTIVE
   journalctl --user -b | grep -i battlog   # deve sair vazio
 
-`Alt+F2` → `r` → Enter volta a funcionar, mas fazendo outra coisa: em X11 esse
-atalho reinicia o shell, e em Wayland isso é impossível (o shell é o compositor).
-O que este setup instalou em /usr/local/bin/r **recarrega a extensão** — que é o
-que se quer em 99% dos casos. Uma por vez, e por padrão a battlog.
+DUAS SESSÕES: o que aparece depende de onde você loga.
 
-  r                      recarrega a battlog@victor
-  r outra@extensao       recarrega outra
+  GNOME     -> extensão do painel (panel/battlog@victor)
+  Hyprland  -> widget do quickshell, canto superior direito
+               (panel/quickshell/battlog.qml, subindo por custom/execs.conf)
 
-Recarregar NÃO alcança o código do próprio shell. Para isso, deslogar mesmo.
+O dado é o mesmo nos dois: o battlog.service escreve ~/.cache/battlog-status e
+cada frente só desenha. Trocar de sessão não pede nada.
+
+`Alt+F2` → `r` → Enter funciona nas duas, fazendo o que cabe em cada uma: em
+X11 o atalho reiniciava o shell, e em Wayland isso é impossível (o shell é o
+compositor). O /usr/local/bin/r decide em tempo de execução:
+
+  no GNOME     recarrega UMA extensão (padrão battlog@victor)
+  no Hyprland  hyprctl reload
+
+Nenhum dos dois alcança o código do próprio compositor. Para isso, deslogar.
 
 Se o painel mostrar "—", o problema não é o painel: é que ninguém escreveu o
 cache nos últimos 30 min. Olhe o serviço:

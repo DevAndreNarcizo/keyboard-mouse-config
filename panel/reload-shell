@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# Recarrega a interface, seja qual for o compositor. Instalado como
+# `/usr/local/bin/r`, devolve o gesto `Alt+F2` → `r` → Enter.
+#
+# POR QUE ISTO EXISTE
+#
+# Em X11, `Alt+F2` → `r` reinicia o gnome-shell no lugar. **Em Wayland isso é
+# impossível**: o shell é o próprio compositor, e reiniciá-lo derrubaria a sessão.
+# No GNOME em Wayland o diálogo trata o `r` como um programa qualquer e responde
+# `command not found`.
+#
+# Mas ninguém quer reiniciar o shell — quer ver a mudança que acabou de fazer.
+# Isso cada compositor permite à sua maneira, e é o que este script despacha.
+#
+# ESTA MÁQUINA TEM DUAS SESSÕES no login (GNOME e Hyprland), então a decisão é
+# em TEMPO DE EXECUÇÃO, pelo que está rodando agora — não em tempo de instalação.
+set -euo pipefail
+
+# --- GNOME ---------------------------------------------------------------
+gnome() {
+  local UUID="${1:-battlog@victor}"
+  gnome-extensions info "$UUID" >/dev/null 2>&1 || { echo "não existe extensão '$UUID'"; return 1; }
+  local antes; antes=$(gnome-extensions info "$UUID" | sed -n 's/^ *State: *//p')
+  if [ "$antes" = "ERROR" ]; then
+    # Recarregar não tira dali, e insistir só confunde quem diagnostica.
+    echo "$UUID está em ERROR — recarregar não resolve."
+    echo "O shell não reimporta extensão em ERROR: é preciso deslogar e logar."
+    echo "Causa:  journalctl --user -b | grep -A8 '$UUID'"
+    return 1
+  fi
+  gnome-extensions disable "$UUID"
+  # O shell processa disable/enable no seu laço; sem a pausa ele às vezes junta
+  # os dois e a extensão não chega a ser descarregada.
+  sleep 0.5
+  gnome-extensions enable "$UUID"
+  sleep 0.5
+  local depois; depois=$(gnome-extensions info "$UUID" | sed -n 's/^ *State: *//p')
+  echo "$UUID: $antes -> $depois"
+  notificar "$UUID -> $depois" "$([ "$depois" = ACTIVE ] && echo normal || echo critical)"
+  [ "$depois" = "ACTIVE" ]
+}
+
+# UMA extensão, nunca em lote — aprendido do jeito ruim em 2026-08-24.
+# Extensões que fazem monkey-patch no shell (ding, dash-to-dock, hanabi) guardam
+# a função original para restaurar no disable. Derrubadas fora de ordem, uma
+# restaura por cima da outra, a cadeia se perde e CINCO extensões caem em ERROR
+# de uma vez — de onde não voltam sem reiniciar o shell.
+
+# --- Hyprland ------------------------------------------------------------
+hyprland() {
+  hyprctl reload
+  echo "hyprland: config recarregada"
+  # O quickshell recarrega config sozinho quando o arquivo muda — não há o que
+  # fazer aqui, e mandar matar/reabrir só arriscaria derrubar a barra do usuário.
+  # `pgrep -f battlog.qml` sozinho casa com a linha de comando de QUALQUER
+  # processo que mencione o arquivo — inclusive a deste próprio script quando
+  # ele é invocado de um `bash -c`. Casar o binário do quickshell primeiro, e só
+  # então procurar o config, é o que separa "a barra está de pé" de "alguém
+  # digitou o nome do arquivo".
+  if pgrep -af '(^|/)(qs|quickshell)\b' 2>/dev/null | grep -q 'battlog\.qml'; then
+    echo "battlog.qml: de pé (o quickshell relê sozinho ao salvar o arquivo)"
+  else
+    echo "battlog.qml: NÃO está rodando — veja custom/execs.conf"
+  fi
+  notificar "hyprland recarregado" normal
+}
+
+notificar() {
+  command -v notify-send >/dev/null || return 0
+  notify-send -t 2500 ${2:+-u "$2"} "r" "$1" || true
+}
+
+# --- despacho ------------------------------------------------------------
+case "${1:-}" in
+  -h|--help)
+    echo "uso: r [uuid-da-extensão]"
+    echo "  GNOME    recarrega UMA extensão (padrão: battlog@victor)"
+    echo "  Hyprland hyprctl reload"
+    exit 0 ;;
+esac
+
+if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && command -v hyprctl >/dev/null; then
+  hyprland
+elif command -v gnome-extensions >/dev/null && pgrep -x gnome-shell >/dev/null; then
+  gnome "$@"
+else
+  echo "nem Hyprland nem gnome-shell rodando aqui — nada a recarregar."
+  echo "sessão: ${XDG_CURRENT_DESKTOP:-?} / ${XDG_SESSION_TYPE:-?}"
+  exit 1
+fi

@@ -319,22 +319,31 @@ Achar isto obrigou a consertar o `find_iface`, que só reconhecia `0xFF00` e
 inteira, e o fone usa `0xFF13`. O aparelho estava plugado e aparecia como ausente,
 **sem erro nenhum**.
 
-**Mouse Attack Shark X6 (`1d57:fa61`) — em aberto, com pista forte.** Ele
-**anuncia sozinho** no report `0x03` (página `0x0a`, Input de 4 B):
+**Mouse Attack Shark X6 (`1d57:fa61`) — RESOLVIDO.**
+`devices/attackshark_x6/`. Anuncia sozinho no report `0x03`:
 
     03 10 40 02 0a
 
-A família toda tem a mesma forma, com o percentual no último byte:
+O que destravou foi descobrir que isto não é protocolo do modelo, é um **sistema
+de mensagens** de família: `[evento, ID do modelo, código, param1, param2]`. O
+`0x10` **não era parte da bateria — era o identificador do X6** (o X11 é `0x55`).
+Evento `0x40` é o de bateria, e o percentual é o param2: **10 %**.
 
-| modelo | frame | fonte |
+| modelo | frame | ID |
 |---|---|---|
-| Delux M900Pro | `03 50 41 01 PP` | `devices/delux_m900pro/` |
-| Attack Shark X11 | `03 55 40 01 PP` | HarukaYamamoto0/attack-shark-x11-driver |
-| **Attack Shark X6 (aqui)** | `03 10 40 02 ??` | este frame |
+| Delux M900Pro | `03 50 41 01 PP` | `0x50` |
+| Attack Shark X11 | `03 55 40 01 PP` | `0x55` |
+| **Attack Shark X6** | `03 10 40 02 PP` | `0x10` |
 
-Pelo padrão, o `0x0a` = **10 %**. **Não confirmado**: falta a leitura real do
-mouse para comparar, ou ver o valor subir no dock de carga. Sem isso não vira
-módulo — 10 % é baixo o bastante para ser um número errado plausível.
+Duas ressalvas honestas, as duas em `PROTOCOL.md`: o **param1 não fecha** com a
+tabela de estados do driver de referência (vale `0x02` = "carregado" ao lado de
+10 %), então vai `charging=None`; e **os 10 % não foram cruzados** com uma
+segunda fonte — quem confirma ou desmente é o `kmctl show` nos próximos dias.
+
+Isso obrigou a um segundo ajuste no `find_iface`: este receptor expõe **quatro**
+interfaces com o mesmo VID:PID e **nenhuma página de fabricante**. O parâmetro
+`contains=` escolhe pelo traço do descritor (`05 0a 09 00 a1 01 85 03`) quando não
+há página vendor para desempatar.
 
 **Teclado AULA F75 (receptor `3554:fa09`) — em aberto.** O canal de fabricante é a
 página `0xff02`, report `0x13` (Input 19 B e Output 19 B); há também uma Feature
@@ -343,6 +352,62 @@ eliminado por teste: os opcodes `0x20 0x01` do
 [Aula-F75-Max-Driver](https://github.com/VitalyArt/Aula-F75-Max-Driver) (que é
 para o F75 **Max**, outro modelo) não produzem resposta no report `0x13`, e
 tentá-los como report `0x20` dá `EPIPE` — esse report não existe neste descritor.
+
+## 11. Duas sessões: GNOME e Hyprland (2026-08-24)
+
+O login desta máquina oferece `ubuntu.desktop` (GNOME 50.1) **e** três
+`hyprland*.desktop`. As duas sessões são usadas, então tudo aqui foi feito para
+funcionar nas duas — e o `setup-calecos.sh` decide pelo que está **instalado**,
+não pelo que está rodando: configurar só a sessão de dentro da qual o script
+roda deixaria a outra quebrada até alguém lembrar de rodar lá.
+
+### O que é comum, e é a maior parte
+
+O caminho do dado não sabe o que é um compositor: `udev` → `kmctl watch`
+(`battlog.service`, systemd `--user`) → `~/.cache/battlog-status`. Trocar de
+sessão não pede nada.
+
+### O que muda, e é só o desenho
+
+| | GNOME | Hyprland |
+|---|---|---|
+| quem desenha | `panel/battlog@victor/` (extensão) | `panel/quickshell/battlog.qml` |
+| como sobe | symlink + `enabled-extensions` | `exec-once` em `custom/execs.conf` |
+| layout | `gsettings` input-sources | `input { kb_layout }` do hyprland |
+| `r` recarrega | uma extensão | `hyprctl reload` |
+
+**O widget do Hyprland é um config quickshell separado**, rodando ao lado do
+`ii` do dots-hyprland — **não** um patch no `ii`. Editar o `ii` seria mexer em
+código de terceiro que a próxima atualização dele sobrescreve sem avisar.
+
+Ele não fala com hardware: executa `kmctl bar --json --follow`, que fica de pé e
+emite uma linha nova a cada mudança. Mesma divisão da extensão do GNOME, e os
+mesmos três estados (aparelhos / vazio some / velho vira "—").
+
+**A margem de topo de 79 px não é estética.** A barra do `ii` ocupa
+`0 0 1920 73`; com a margem de 6 que parecia óbvia, o widget era desenhado **em
+cima dela**. Descoberto com `hyprctl layers`, não adivinhado.
+
+### `kmctl bar`, a costura que faltava
+
+O formato do cache tinha dois parsers — um em Python (que escreve) e um em
+JavaScript (a extensão, que lê). Escrever um terceiro em QML era o caminho para
+os três divergirem. Em vez disso, `battery.read_status()` é o parser do lado
+Python e `kmctl bar` o expõe para **qualquer** barra:
+
+    kmctl bar                     78%
+    kmctl bar --json              objeto de módulo custom do waybar
+    kmctl bar --json --follow     fica de pé e reemite quando muda
+    kmctl bar --icons             prefixo Nerd Font por categoria
+
+O `--follow` compara o **render**, não o mtime: o batimento de 5 min reescreve o
+arquivo sem mudar nada, e reemitir aí faria a barra piscar sem motivo.
+
+### O teclado das duas sessões concorda, e isso foi conferido, não imposto
+
+GNOME em `us+intl`; Hyprland com `kb_layout = us` / `kb_variant = intl` em
+`custom/general.conf`. O `setup-calecos.sh` **confere e avisa**, mas não reescreve
+o `input {}`: trocar o layout de uma sessão por baixo do dono é decisão dele.
 
 ## Não ativo
 

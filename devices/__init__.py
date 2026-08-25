@@ -100,7 +100,7 @@ def _tem_pagina_vendor(desc):
     return False
 
 
-def find_iface(ids, writable=False, at_start=False):
+def find_iface(ids, writable=False, at_start=False, contains=None):
     """/dev/hidrawN do canal vendor desses HID_ID. None se não estiver plugado.
 
     Os periféricos expõem a página vendor em mais de uma interface e escolher
@@ -112,6 +112,11 @@ def find_iface(ids, writable=False, at_start=False):
     - `at_start`: o descritor tem que **começar** com a página vendor. Regra
       original do F75 e do AJ139. A versão solta pode casar com outra interface,
       e esse hardware não está na mesa para conferir — quem tem, que afrouxe.
+    - `contains`: sequência de bytes que o descritor tem que ter, **no lugar** da
+      exigência de página vendor. Existe porque nem todo aparelho põe a bateria
+      numa página vendor: o Attack Shark X6 anuncia no report `0x03` sob a página
+      **Ordinal** (`0x0A`), e as suas quatro interfaces têm o mesmo VID:PID — sem
+      um traço do descritor para desempatar não há como escolher a certa.
     """
     for uevent in sorted(glob.glob("/sys/class/hidraw/hidraw*/device/uevent")):
         with open(uevent) as f:
@@ -120,7 +125,10 @@ def find_iface(ids, writable=False, at_start=False):
         d = os.path.dirname(uevent)
         with open(os.path.join(d, "report_descriptor"), "rb") as f:
             desc = f.read()
-        if at_start:
+        if contains is not None:
+            if contains not in desc:
+                continue
+        elif at_start:
             if not (desc[0] == 0x06 and desc[2] == 0xFF):
                 continue
         elif not _tem_pagina_vendor(desc):

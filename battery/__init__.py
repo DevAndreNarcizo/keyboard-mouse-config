@@ -20,6 +20,9 @@ DIR = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(DIR, "battlog.db")
 STATUS = os.path.join(os.environ.get("XDG_CACHE_HOME") or
                       os.path.expanduser("~/.cache"), "battlog-status")
+# Segundos desde a última gravação acima dos quais quem escreve é dado por morto.
+# Espelha o `VELHO` da extensão do GNOME — mudou aqui, muda lá.
+STATUS_VELHO = 30 * 60
 KEEP_DAYS = 90
 
 
@@ -188,6 +191,62 @@ def watch(interval=20, record=600, heartbeat=300, wait=3, keep=KEEP_DAYS,
     finally:
         despertador.close()
     return 0
+
+
+def read_status(texto=None):
+    """Lê o cache do painel e devolve `(ts, [dict por aparelho])`.
+
+    Existe porque o formato do arquivo tinha **dois** parsers: um em Python
+    (`status_text`, que escreve) e um em JavaScript (a extensão do GNOME, que
+    lê). Escrever um terceiro para cada barra nova — waybar, quickshell, eww —
+    era o caminho para eles divergirem. Este é o parser do lado Python, e é o
+    que o `kmctl bar` usa.
+
+    `ts` vem como int; `None` se o arquivo não existe. Linha malformada é
+    ignorada em silêncio: o consumidor é uma barra, e derrubar a barra do
+    usuário por causa de um byte torto no cache seria pior que mostrar menos.
+    """
+    if texto is None:
+        try:
+            texto = open(STATUS).read()
+        except OSError:
+            return None, []
+    ts, devs = None, []
+    for linha in texto.splitlines():
+        campos = linha.split(None, 5)
+        if not campos:
+            continue
+        if campos[0] == "ts" and len(campos) > 1:
+            try:
+                ts = int(campos[1])
+            except ValueError:
+                pass
+        elif campos[0] == "dev" and len(campos) >= 5:
+            try:
+                pct = int(campos[3])
+            except ValueError:
+                continue
+            carga = None if campos[4] == "-" else campos[4] == "1"
+            devs.append({
+                "kind": campos[1],
+                "ident": campos[2],
+                "pct": pct,
+                "charging": carga,
+                "name": campos[5] if len(campos) > 5 else campos[2],
+            })
+    return ts, devs
+
+
+def status_stale(ts, agora=None):
+    """O cache está velho? Mesma regra dos 30 min que a extensão usa.
+
+    A constante vivia só no JavaScript (`VELHO`). Repetida aqui, os dois lados
+    podiam divergir em silêncio e o usuário veria a barra e o painel
+    discordando sobre se o serviço está vivo. Agora quem manda é o Python.
+    """
+    if ts is None:
+        return True
+    return (agora or time.time()) - ts > STATUS_VELHO
 
 
 def status_text(con, achados=None, leituras=None):
